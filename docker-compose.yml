@@ -8,10 +8,8 @@ services:
       - "${PORT:-8800}:8000"
     env_file: .env
     volumes:
-      # SQLite metadata DB — named volume, persists across rebuilds.
-      - openshare_data:/data
-      # Uploaded files + thumbnails. Point STORAGE_PATH at any disk / NAS you like.
-      - ${STORAGE_PATH:-./storage}:/srv/openshare
-
-volumes:
-  openshare_data:
+      # SQLite metadata DB. DB_PATH defaults to a local ./data dir.
+      - ${DB_PATH:-./data}:/data
+      # Uploaded files + thumbnails. STORAGE_PATH is the HOST dir (point it at a disk or NAS);
+      # the container-side path MUST equal STORAGE_ROOT so the app finds its files.
+      - ${STORAGE_PATH:-./storage}:${STORAGE_ROOT:-/srv/openshare}

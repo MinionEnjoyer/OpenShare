@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="static/logo.png" alt="OpenShare" width="120" height="120" />
+</p>
+
 # OpenShare
 
 A self-hosted file & media service: upload, store, view, and share files behind your own

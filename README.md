@@ -5,7 +5,7 @@ OpenID Connect login. It provides in-browser viewers, automatic thumbnails, fold
 share links — and doubles as the upload/attachment backend for
 **[OpenChat](https://github.com/MinionEnjoyer/OpenChat)**.
 
-If you found this project useful, consider supporting me here: https://buymeacoffee.com/minionenjoyer Thank you!
+## If you found this project useful, consider supporting me here: https://buymeacoffee.com/minionenjoyer Thank you!
 
 ## Features
 

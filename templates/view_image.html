@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}{{ item.original_name }} — OpenShare{% endblock %}
+{% block meta %}
+<meta property="og:title" content="{{ item.original_name }}">
+<meta property="og:type" content="image">
+<meta property="og:image" content="{{ public_url }}/raw/{{ item.id }}">
+<meta property="og:url" content="{{ public_url }}/i/{{ item.id }}">
+<meta name="twitter:card" content="summary_large_image">
+{% endblock %}
+{% block content %}
+<div class="viewer">
+  <img src="/raw/{{ item.id }}" alt="{{ item.original_name }}">
+  <div class="meta">
+    <span class="muted">by {{ item.owner_username }}</span>
+    <a class="btn" href="/raw/{{ item.id }}" download="{{ item.original_name }}">Download</a>
+    <button class="btn" onclick="navigator.clipboard.writeText(location.href)">Copy link</button>
+    {% if user and user.sub == item.owner_sub %}
+    <form action="/delete/{{ item.id }}" method="post" onsubmit="return confirm('Delete this?')">
+      <button class="btn danger" type="submit">Delete</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

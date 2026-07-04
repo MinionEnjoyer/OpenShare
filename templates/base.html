@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}OpenShare{% endblock %}</title>
+{% block meta %}{% endblock %}
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<nav>
+  <a href="/" class="brand">OpenShare</a>
+  <div class="spacer"></div>
+  {% if user %}
+    <span class="user">{{ user.username }}</span>
+    <a href="/auth/logout" class="btn">Sign out</a>
+  {% endif %}
+</nav>
+{% if user %}
+<section class="subheader">
+  <form action="/search" method="get" class="search-bar">
+    <input type="search" name="q" placeholder="Search your library…" value="{{ q|default('', true) }}" autocomplete="off">
+  </form>
+  {% if user_storage %}
+  <p class="storage-info muted">{{ user_storage }} used</p>
+  {% endif %}
+</section>
+{% endif %}
+<main>{% block content %}{% endblock %}</main>
+</body>
+</html>

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}{{ item.original_name }} — OpenShare{% endblock %}
+{% block meta %}
+<meta property="og:title" content="{{ item.original_name }}">
+<meta property="og:type" content="video">
+<meta property="og:video" content="{{ public_url }}/raw/{{ item.id }}">
+<meta property="og:image" content="{{ public_url }}/thumb/{{ item.id }}">
+<meta property="og:url" content="{{ public_url }}/v/{{ item.id }}">
+<meta name="twitter:card" content="player">
+{% endblock %}
+{% block content %}
+<div class="viewer">
+  <video id="player" controls preload="metadata" poster="/thumb/{{ item.id }}" src="/raw/{{ item.id }}"></video>
+  <div id="video-fallback" class="video-fallback" hidden>
+    <p class="muted">Your browser can't play this video format directly.</p>
+    <a class="btn primary big" href="/raw/{{ item.id }}" download="{{ item.original_name }}">Download to play</a>
+    <p class="muted small">VLC, IINA, or mpv will play it.</p>
+  </div>
+  <div class="meta">
+    <span class="muted">by {{ item.owner_username }}</span>
+    <span class="muted">· {{ item.original_name }}</span>
+    <a class="btn" href="/raw/{{ item.id }}" download="{{ item.original_name }}">Download</a>
+    <button class="btn" onclick="navigator.clipboard.writeText(location.href)">Copy link</button>
+    {% if user and user.sub == item.owner_sub %}
+    <form action="/delete/{{ item.id }}" method="post" onsubmit="return confirm('Delete this?')">
+      <button class="btn danger" type="submit">Delete</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+<script>
+const player = document.getElementById('player');
+const fallback = document.getElementById('video-fallback');
+function showFallback() {
+  player.hidden = true;
+  fallback.hidden = false;
+}
+// Only show the fallback when a real load/playback attempt fails.
+player.addEventListener('error', showFallback);
+</script>
+{% endblock %}

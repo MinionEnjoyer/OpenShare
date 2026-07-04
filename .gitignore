@@ -1,0 +1,20 @@
+# secrets / local config — NEVER commit (only .env.example is tracked)
+.env
+.env.*
+!.env.example
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# local data — uploads, thumbnails, sqlite db
+storage/
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# os
+.DS_Store

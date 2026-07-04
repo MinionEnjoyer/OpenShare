@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ item.original_name }} — OpenShare{% endblock %}
+{% block meta %}
+<meta property="og:title" content="{{ item.original_name }}">
+<meta property="og:type" content="article">
+<meta property="og:url" content="{{ public_url }}/t/{{ item.id }}">
+{% if item.thumb_path %}
+<meta property="og:image" content="{{ public_url }}/thumb/{{ item.id }}">
+{% endif %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.10.0/build/styles/atom-one-dark.min.css">
+{% endblock %}
+{% block content %}
+<div class="viewer">
+  <div class="text-viewer">
+    <header class="text-viewer-header">
+      <span class="muted">{{ item.original_name }}</span>
+      {% if truncated %}<span class="muted small">· truncated to first 256 KB</span>{% endif %}
+    </header>
+    <pre class="text-body"><code class="language-{{ lang }}">{{ body }}</code></pre>
+  </div>
+  <div class="meta">
+    <span class="muted">by {{ item.owner_username }}</span>
+    <a class="btn" href="/raw/{{ item.id }}" download="{{ item.original_name }}">Download</a>
+    <button class="btn" onclick="navigator.clipboard.writeText(location.href)">Copy link</button>
+    {% if user and user.sub == item.owner_sub %}
+    <form action="/delete/{{ item.id }}" method="post" onsubmit="return confirm('Delete this?')">
+      <button class="btn danger" type="submit">Delete</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.10.0/build/highlight.min.js"></script>
+<script>document.querySelectorAll('pre code').forEach(b => hljs.highlightElement(b));</script>
+{% endblock %}

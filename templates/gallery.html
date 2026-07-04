@@ -1,0 +1,312 @@
+{% extends "base.html" %}
+{% block content %}
+
+<nav class="crumbs">
+  <a href="/" class="crumb {% if not folder %}current{% endif %}">All</a>
+  {% for c in breadcrumb %}
+    <span class="crumb-sep">/</span>
+    <a href="/folder/{{ c.id }}" class="crumb {% if folder and c.id == folder.id %}current{% endif %}">{{ c.name }}</a>
+  {% endfor %}
+</nav>
+
+{% if folder %}
+<section class="folder-actions">
+  <button class="btn" type="button" onclick="document.getElementById('share-dialog').showModal()">Copy share link</button>
+  <details class="inline-form" name="gallery-menu">
+    <summary class="btn">Rename</summary>
+    <form action="/folders/{{ folder.id }}/rename" method="post">
+      <input type="text" name="name" value="{{ folder.name }}" required>
+      <button class="btn primary" type="submit">Save</button>
+    </form>
+  </details>
+  <details class="inline-form" name="gallery-menu">
+    <summary class="btn">Move folder</summary>
+    <form action="/folders/{{ folder.id }}/move" method="post">
+      <select name="parent_id">
+        <option value="">(root)</option>
+        {% for f in all_folders if f.id != folder.id %}
+          <option value="{{ f.id }}" {% if folder.parent_id == f.id %}selected{% endif %}>{{ f.name }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn primary" type="submit">Move</button>
+    </form>
+  </details>
+  <form action="/folders/{{ folder.id }}/delete" method="post" onsubmit="return confirm('Delete this folder? Its contents will move up to the parent.')">
+    <button class="btn danger" type="submit">Delete folder</button>
+  </form>
+</section>
+
+<dialog id="share-dialog">
+  <h3>Share this folder</h3>
+  <p class="muted">Anyone with this link can view the folder's contents.</p>
+  <input type="text" readonly id="share-url" value="{{ public_url }}/f/{{ folder.id }}">
+  <div class="dialog-actions">
+    <button class="btn primary" onclick="navigator.clipboard.writeText(document.getElementById('share-url').value); this.textContent='Copied!'">Copy</button>
+    <button class="btn" onclick="document.getElementById('share-dialog').close()">Close</button>
+  </div>
+</dialog>
+{% endif %}
+
+<section class="upload-zone" id="dropzone">
+  <details class="inline-form new-folder-spot" name="gallery-menu">
+    <summary class="btn ghost">+ New folder</summary>
+    <form action="/folders" method="post" class="new-folder-form">
+      <input type="hidden" name="parent_id" value="{{ folder.id if folder else '' }}">
+      <input type="text" name="name" placeholder="Folder name" required autofocus>
+      <button class="btn primary" type="submit">Create</button>
+    </form>
+  </details>
+  <div class="upload-main">
+    <div class="upload-icon" aria-hidden="true">⬆</div>
+    <div class="upload-prompt">
+      <strong>Drop files here</strong>
+      <span class="muted">or</span>
+      <label class="btn primary">
+        <input type="file" id="fileinput" multiple hidden
+               accept="image/*,video/*,text/*,application/pdf,application/json,application/xml,.stl,.obj,.fbx,.3mf,.step,.stp,.mtl,.zip,.rar,.7z,.tar,.gz,.tgz,.bz2,.xz,.vpk,.pak,.txt,.md,.json,.yaml,.yml,.toml,.ini,.cfg,.csv,.tsv,.xml,.html,.css,.sh,.py,.js,.ts,.go,.rs,.java,.c,.h,.cpp,.hpp,.sql,.log,.dockerfile">
+        Choose files
+      </label>
+    </div>
+    <div class="upload-target muted">{% if folder %}→ {{ folder.name }}{% else %}→ root{% endif %}</div>
+  </div>
+  <div id="progress" class="progress muted" hidden></div>
+</section>
+
+<div id="selection-bar" class="selection-bar" hidden>
+  <span class="sel-count"><span id="sel-count">0</span> selected</span>
+  <details class="inline-form sel-move" name="gallery-menu">
+    <summary class="btn">Move to…</summary>
+    <div class="sel-move-menu">
+      <button class="btn ghost" type="button" data-folder-id="">(root)</button>
+      {% for f in all_folders %}
+        <button class="btn ghost" type="button" data-folder-id="{{ f.id }}">{{ f.name }}</button>
+      {% endfor %}
+    </div>
+  </details>
+  <button class="btn danger" id="sel-delete" type="button">Delete</button>
+  <button class="btn" id="sel-clear" type="button">Clear</button>
+</div>
+
+{% if subfolders %}
+<section class="folder-grid">
+  {% for sf in subfolders %}
+  <a class="folder-tile droptarget" href="/folder/{{ sf.id }}" data-folder-id="{{ sf.id }}">
+    <div class="folder-icon">📁</div>
+    <span class="folder-name">{{ sf.name }}</span>
+  </a>
+  {% endfor %}
+  {% if folder and folder.parent_id is not none %}
+  <a class="folder-tile droptarget up-tile" href="/folder/{{ folder.parent_id }}" data-folder-id="{{ folder.parent_id }}">
+    <div class="folder-icon">⤴</div>
+    <span class="folder-name">Up one</span>
+  </a>
+  {% elif folder %}
+  <a class="folder-tile droptarget up-tile" href="/" data-folder-id="">
+    <div class="folder-icon">⤴</div>
+    <span class="folder-name">Up to root</span>
+  </a>
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="grid" id="media-grid">
+  {% for it in items %}
+  {% set view_prefix = {'image':'i','video':'v','pdf':'d','model':'m','text':'t','archive':'a'}[it.media_type] %}
+  {% set ext = (it.original_name.rsplit('.',1)[1] | upper) if '.' in it.original_name else '' %}
+  <div class="tile-wrap" data-id="{{ it.id }}" data-href="/{{ view_prefix }}/{{ it.id }}">
+    <div class="tile" draggable="true">
+      {% if it.thumb_path %}
+        <img src="/thumb/{{ it.id }}" alt="" loading="lazy" draggable="false">
+      {% elif it.media_type == 'model' %}
+        <div class="thumb-missing model-thumb"><span class="model-cube">⬢</span><span class="model-ext">{{ ext }}</span></div>
+      {% elif it.media_type == 'archive' %}
+        <div class="thumb-missing model-thumb"><span class="model-cube">📦</span><span class="model-ext">{{ ext }}</span></div>
+      {% else %}
+        <div class="thumb-missing">{{ it.media_type }}</div>
+      {% endif %}
+      {% if it.media_type == 'video' %}<span class="badge">▶</span>
+      {% elif it.media_type == 'pdf' %}<span class="badge">PDF</span>
+      {% elif it.media_type == 'model' %}<span class="badge">{{ ext }}</span>
+      {% elif it.media_type == 'text' %}<span class="badge">{{ ext }}</span>
+      {% elif it.media_type == 'archive' %}<span class="badge">{{ ext }}</span>{% endif %}
+      <span class="select-check" title="Select"></span>
+    </div>
+    {% if it.media_type in ('model','text','archive') %}
+    <div class="tile-caption" title="{{ it.original_name }}">{{ it.original_name }}</div>
+    {% endif %}
+  </div>
+  {% else %}
+  {% if not subfolders %}<p class="empty muted">Nothing here yet — upload or create a folder above.</p>{% endif %}
+  {% endfor %}
+</section>
+
+<script>
+const dz = document.getElementById('dropzone');
+const input = document.getElementById('fileinput');
+const progress = document.getElementById('progress');
+const grid = document.getElementById('media-grid');
+const selBar = document.getElementById('selection-bar');
+const selCountEl = document.getElementById('sel-count');
+const selDelete = document.getElementById('sel-delete');
+const selClear = document.getElementById('sel-clear');
+const currentFolder = {{ (folder.id|tojson) if folder else 'null' }};
+
+// ---------- Upload (drag onto upload zone, or file input) ----------
+['dragenter','dragover'].forEach(e => dz.addEventListener(e, ev => {
+  if (ev.dataTransfer.types.includes('Files')) {
+    ev.preventDefault(); dz.classList.add('dragover');
+  }
+}));
+['dragleave','drop'].forEach(e => dz.addEventListener(e, ev => {
+  ev.preventDefault(); dz.classList.remove('dragover');
+}));
+dz.addEventListener('drop', ev => {
+  if (ev.dataTransfer.files && ev.dataTransfer.files.length) upload(ev.dataTransfer.files);
+});
+input.addEventListener('change', () => upload(input.files));
+
+async function upload(files) {
+  if (!files || !files.length) return;
+  const fd = new FormData();
+  for (const f of files) fd.append('files', f);
+  if (currentFolder) fd.append('folder_id', currentFolder);
+  progress.hidden = false;
+  progress.classList.remove('error');
+  progress.textContent = `Uploading ${files.length} file(s)…`;
+  try {
+    const r = await fetch('/upload', { method:'POST', body:fd });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const body = await r.json();
+    const savedN = (body.saved || []).length;
+    const rejected = body.rejected || [];
+    if (rejected.length) {
+      progress.classList.add('error');
+      const names = rejected.map(r => `${r.name} (${r.reason})`).join(', ');
+      progress.textContent = `Uploaded ${savedN}. Skipped ${rejected.length}: ${names}`;
+      if (savedN > 0) setTimeout(() => location.reload(), 2500);
+      return;
+    }
+    progress.textContent = `Uploaded ${savedN} file(s). Refreshing…`;
+    setTimeout(() => location.reload(), 400);
+  } catch (e) {
+    progress.classList.add('error');
+    progress.textContent = `Upload failed: ${e}`;
+  }
+}
+
+// ---------- Selection ----------
+const selected = new Set();
+let anchor = null;
+
+function tileIds() {
+  return [...grid.querySelectorAll('.tile-wrap')].map(t => t.dataset.id);
+}
+
+function refreshSelection() {
+  for (const w of grid.querySelectorAll('.tile-wrap')) {
+    w.classList.toggle('selected', selected.has(w.dataset.id));
+  }
+  selCountEl.textContent = selected.size;
+  selBar.hidden = selected.size === 0;
+}
+
+function toggle(id) {
+  if (selected.has(id)) selected.delete(id); else selected.add(id);
+  anchor = id;
+  refreshSelection();
+}
+
+function rangeTo(id) {
+  const ids = tileIds();
+  const a = anchor ? ids.indexOf(anchor) : 0;
+  const b = ids.indexOf(id);
+  if (a === -1 || b === -1) return toggle(id);
+  const [lo, hi] = a < b ? [a,b] : [b,a];
+  for (let i = lo; i <= hi; i++) selected.add(ids[i]);
+  refreshSelection();
+}
+
+grid.addEventListener('click', ev => {
+  const wrap = ev.target.closest('.tile-wrap');
+  if (!wrap) return;
+  const id = wrap.dataset.id;
+  if (ev.target.classList.contains('select-check')) {
+    ev.preventDefault();
+    if (ev.shiftKey) rangeTo(id); else toggle(id);
+    return;
+  }
+  if (ev.metaKey || ev.ctrlKey) { ev.preventDefault(); toggle(id); return; }
+  if (ev.shiftKey) { ev.preventDefault(); rangeTo(id); return; }
+  if (selected.size > 0) { ev.preventDefault(); toggle(id); return; }
+  location.href = wrap.dataset.href;
+});
+
+selClear.addEventListener('click', () => { selected.clear(); anchor=null; refreshSelection(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && selected.size) { selected.clear(); refreshSelection(); }
+});
+
+// Bulk delete
+selDelete.addEventListener('click', async () => {
+  if (!selected.size) return;
+  if (!confirm(`Delete ${selected.size} item(s)? This cannot be undone.`)) return;
+  const r = await fetch('/bulk/delete', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ ids: [...selected] }),
+  });
+  if (r.ok) location.reload(); else alert(`Delete failed: HTTP ${r.status}`);
+});
+
+// Bulk move via "Move to…" menu
+document.querySelectorAll('.sel-move-menu button[data-folder-id]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    if (!selected.size) return;
+    const r = await fetch('/bulk/move', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ ids: [...selected], folder_id: btn.dataset.folderId || null }),
+    });
+    if (r.ok) location.reload(); else alert(`Move failed: HTTP ${r.status}`);
+  });
+});
+
+// ---------- Drag items onto folders ----------
+function dragSet(startId) {
+  // If the dragged item is already selected, drag all selected; else just this one.
+  if (selected.has(startId)) return [...selected];
+  return [startId];
+}
+
+for (const wrap of grid.querySelectorAll('.tile-wrap')) {
+  const tile = wrap.querySelector('.tile');
+  tile.addEventListener('dragstart', ev => {
+    const ids = dragSet(wrap.dataset.id);
+    ev.dataTransfer.setData('application/x-gallery-ids', JSON.stringify(ids));
+    ev.dataTransfer.effectAllowed = 'move';
+    document.body.classList.add('dragging-items');
+  });
+  tile.addEventListener('dragend', () => document.body.classList.remove('dragging-items'));
+}
+
+for (const target of document.querySelectorAll('.droptarget')) {
+  target.addEventListener('dragover', ev => {
+    if (ev.dataTransfer.types.includes('application/x-gallery-ids')) {
+      ev.preventDefault(); ev.dataTransfer.dropEffect = 'move';
+      target.classList.add('dropping');
+    }
+  });
+  target.addEventListener('dragleave', () => target.classList.remove('dropping'));
+  target.addEventListener('drop', async ev => {
+    target.classList.remove('dropping');
+    const raw = ev.dataTransfer.getData('application/x-gallery-ids');
+    if (!raw) return;
+    ev.preventDefault();
+    const ids = JSON.parse(raw);
+    const r = await fetch('/bulk/move', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ ids, folder_id: target.dataset.folderId || null }),
+    });
+    if (r.ok) location.reload(); else alert(`Move failed: HTTP ${r.status}`);
+  });
+}
+</script>
+{% endblock %}

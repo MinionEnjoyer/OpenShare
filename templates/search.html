@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Search — OpenShare{% endblock %}
+{% block content %}
+
+<header class="search-header">
+  <h1>{% if q %}Results for "{{ q }}"{% else %}Search{% endif %}</h1>
+  {% if q %}
+    <p class="muted">{{ folders|length }} folder(s), {{ items|length }} item(s)</p>
+  {% endif %}
+</header>
+
+{% if not q %}
+  <p class="muted">Type something into the search box at the top.</p>
+{% elif not folders and not items %}
+  <p class="empty muted">No matches.</p>
+{% endif %}
+
+{% if folders %}
+<section>
+  <h2 class="section-h">Folders</h2>
+  <div class="folder-grid">
+    {% for f in folders %}
+    <a class="folder-tile" href="/folder/{{ f.id }}">
+      <div class="folder-icon">📁</div>
+      <span class="folder-name">{{ f.name }}</span>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if items %}
+<section>
+  <h2 class="section-h">Items</h2>
+  <div class="grid">
+    {% for it in items %}
+    {% set view_prefix = {'image':'i','video':'v','pdf':'d','model':'m','text':'t','archive':'a'}[it.media_type] %}
+    {% set ext = (it.original_name.rsplit('.',1)[1] | upper) if '.' in it.original_name else '' %}
+    <div class="tile-wrap">
+      <a class="tile" href="/{{ view_prefix }}/{{ it.id }}" title="{{ it.original_name }}">
+        {% if it.thumb_path %}
+          <img src="/thumb/{{ it.id }}" alt="" loading="lazy">
+        {% elif it.media_type == 'model' %}
+          <div class="thumb-missing model-thumb"><span class="model-cube">⬢</span><span class="model-ext">{{ ext }}</span></div>
+        {% elif it.media_type == 'archive' %}
+          <div class="thumb-missing model-thumb"><span class="model-cube">📦</span><span class="model-ext">{{ ext }}</span></div>
+        {% else %}
+          <div class="thumb-missing">{{ it.media_type }}</div>
+        {% endif %}
+        {% if it.media_type == 'video' %}<span class="badge">▶</span>
+        {% elif it.media_type == 'pdf' %}<span class="badge">PDF</span>
+        {% elif it.media_type == 'model' %}<span class="badge">{{ ext }}</span>
+        {% elif it.media_type == 'text' %}<span class="badge">{{ ext }}</span>
+        {% elif it.media_type == 'archive' %}<span class="badge">{{ ext }}</span>{% endif %}
+      </a>
+      {% if it.media_type in ('model','text','archive') %}
+      <div class="tile-caption" title="{{ it.original_name }}">{{ it.original_name }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,17 @@
+services:
+  openshare:
+    build: .
+    image: openshare:latest
+    container_name: openshare
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8800}:8000"
+    env_file: .env
+    volumes:
+      # SQLite metadata DB — named volume, persists across rebuilds.
+      - openshare_data:/data
+      # Uploaded files + thumbnails. Point STORAGE_PATH at any disk / NAS you like.
+      - ${STORAGE_PATH:-./storage}:/srv/openshare
+
+volumes:
+  openshare_data:

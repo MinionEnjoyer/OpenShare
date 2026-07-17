@@ -41,6 +41,11 @@ VIDEO_MIMES = {
     "video/ogg", "video/x-m4v", "video/mp2t", "video/x-flv",
 }
 PDF_MIMES = {"application/pdf", "application/x-pdf"}
+AUDIO_MIMES = {
+    "audio/mpeg", "audio/mp3", "audio/mp4", "audio/aac", "audio/x-m4a",
+    "audio/ogg", "audio/opus", "audio/wav", "audio/x-wav", "audio/wave",
+    "audio/webm", "audio/flac", "audio/x-flac",
+}
 MODEL_MIMES = {
     "model/stl", "application/sla", "application/vnd.ms-pki.stl",
     "model/obj", "application/wavefront-obj",
@@ -52,6 +57,7 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif", ".avif
 VIDEO_EXTS = {".mp4", ".m4v", ".webm", ".mov", ".mkv", ".avi", ".wmv", ".asf",
               ".mpg", ".mpeg", ".3gp", ".3g2", ".ogv", ".ts", ".flv"}
 PDF_EXTS = {".pdf"}
+AUDIO_EXTS = {".mp3", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".wav", ".flac", ".weba"}
 MODEL_EXTS = {".stl", ".obj", ".fbx", ".3mf", ".step", ".stp"}
 # File types that may legitimately accompany a 3D model in a bundle (materials + textures)
 MODEL_AUX_EXTS = {".mtl", ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".tif", ".tiff", ".dds"}
@@ -100,6 +106,8 @@ def classify_upload(filename: str, content_type: str) -> tuple[str | None, str]:
         return "pdf", "application/pdf"
     if mime in MODEL_MIMES:
         return "model", mime
+    if mime in AUDIO_MIMES:
+        return "audio", mime
     # text/* family (text/plain, text/x-python, application/json, etc.)
     if mime.startswith("text/") or mime in {"application/json", "application/xml", "application/x-yaml"}:
         return "text", mime
@@ -114,6 +122,8 @@ def classify_upload(filename: str, content_type: str) -> tuple[str | None, str]:
         return "video", guessed
     if ext in PDF_EXTS:
         return "pdf", "application/pdf"
+    if ext in AUDIO_EXTS:
+        return "audio", mimetypes.types_map.get(ext) or "application/octet-stream"
     if ext in MODEL_EXTS:
         return "model", "application/octet-stream"
     if ext in TEXT_EXTS:

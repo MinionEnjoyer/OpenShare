@@ -27,6 +27,10 @@ PUBLIC_URL = os.environ.get("PUBLIC_URL", "http://localhost:8000").rstrip("/")
 # Cross-origin clients allowed to upload with credentials (e.g. your OpenChat URL).
 # Comma-separated list of origins; empty = same-origin only.
 ALLOWED_ORIGINS = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()]
+# Shared secret for trusted service-to-service calls (e.g. the OpenChat API uploading
+# on a user's behalf). When set, a request bearing this key + an X-Share-User-Sub header
+# is treated as that user. Empty = feature disabled (session auth only).
+SHARE_API_KEY = os.environ.get("SHARE_API_KEY", "").strip()
 
 IMAGE_MIMES = {
     "image/jpeg", "image/png", "image/gif", "image/webp",
@@ -197,6 +201,14 @@ async def _backfill_model_thumbs():
 
 
 def require_user(request: Request) -> dict:
+    # Trusted service call (chat API uploading for a user): Bearer <SHARE_API_KEY>
+    # + X-Share-User-Sub identifies the owner without a browser session.
+    if SHARE_API_KEY:
+        header = request.headers.get("authorization", "")
+        if header == f"Bearer {SHARE_API_KEY}":
+            sub = request.headers.get("x-share-user-sub", "").strip()
+            if sub:
+                return {"sub": sub, "username": request.headers.get("x-share-user-name", "").strip() or sub}
     u = auth.user_from_session(request.session)
     if not u:
         raise HTTPException(status_code=401, detail="not logged in")

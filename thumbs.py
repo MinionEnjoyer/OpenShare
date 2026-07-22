@@ -132,6 +132,36 @@ async def make_audio_waveform(src: Path) -> tuple[list[int] | None, float | None
     return peaks, duration
 
 
+async def transcode_audio_to_mp3(src: Path, dst: Path) -> bool:
+    """If `src` contains an audio stream, transcode it to MP3 at `dst` and return True.
+    Lets us accept audio in containers browsers can't play natively (e.g. .wma, .aiff) by
+    normalizing to MP3 on upload. Returns False (caller rejects) if there's no audio stream
+    or the transcode fails."""
+    # Probe for an audio stream first (skip non-audio files entirely).
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffprobe", "-v", "error", "-select_streams", "a",
+            "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(src),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        )
+        out, _ = await proc.communicate()
+    except Exception:
+        return False
+    if b"audio" not in out:
+        return False
+    # Transcode the audio stream to MP3 (drop any video / cover art with -vn).
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-y", "-i", str(src), "-vn", "-c:a", "libmp3lame", "-b:a", "192k",
+            str(dst),
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
+    except Exception:
+        return False
+    return dst.exists() and dst.stat().st_size > 0
+
+
 def _look_at(eye, target, up):
     """Return a 4x4 camera pose (OpenGL/pyrender convention: cam looks down -Z)."""
     import numpy as np

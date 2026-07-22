@@ -475,10 +475,9 @@ async def upload(
     for f in files:
         media_type, mime = classify_upload(f.filename or "", f.content_type or "")
         is_zip = (Path(f.filename or "").suffix.lower() == ".zip")
-
-        if media_type is None and not is_zip:
-            rejected.append({"name": f.filename or "(unnamed)", "reason": f"unsupported type ({mime or 'unknown'})"})
-            continue
+        # Unknown type: don't reject outright — it may be audio in a container we don't play
+        # natively (e.g. .wma, .aiff). Save it, then probe/transcode to MP3 below.
+        maybe_audio = media_type is None and not is_zip
 
         mid = new_id()
         ext = (Path(f.filename or "").suffix or mimetypes.guess_extension(mime) or "").lower()
@@ -505,6 +504,21 @@ async def upload(
             rejected.append({"name": f.filename or "(archive)",
                              "reason": f"archive exceeds {ARCHIVE_MAX_MB} MB limit"})
             continue
+
+        # Unknown container that turned out to be audio → transcode to MP3 so it both
+        # uploads and plays; otherwise it's genuinely unsupported and we reject it.
+        if maybe_audio:
+            mp3_path = FILES_DIR / f"{mid}.mp3"
+            ok = await thumbs.transcode_audio_to_mp3(storage_path, mp3_path)
+            storage_path.unlink(missing_ok=True)  # drop the original container regardless
+            if not ok:
+                mp3_path.unlink(missing_ok=True)
+                rejected.append({"name": f.filename or "(unnamed)", "reason": f"unsupported type ({mime or 'unknown'})"})
+                continue
+            storage_path = mp3_path
+            ext, mime, media_type = ".mp3", "audio/mpeg", "audio"
+            size = storage_path.stat().st_size
+            # keep `digest` = the original file's hash so re-uploads still de-duplicate
 
         # ZIP path: if this zip is a 3D bundle, extract and treat as 'model'.
         # Otherwise keep the .zip as a plain downloadable archive (fall through).

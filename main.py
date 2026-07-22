@@ -27,6 +27,8 @@ PUBLIC_URL = os.environ.get("PUBLIC_URL", "http://localhost:8000").rstrip("/")
 # Cross-origin clients allowed to upload with credentials (e.g. your OpenChat URL).
 # Comma-separated list of origins; empty = same-origin only.
 ALLOWED_ORIGINS = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()]
+# Tauri desktop webviews (fetching sound files for the soundboard, uploads, etc.).
+NATIVE_ORIGINS = ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"]
 # Shared secret for trusted service-to-service calls (e.g. the OpenChat API uploading
 # on a user's behalf). When set, a request bearing this key + an X-Share-User-Sub header
 # is treated as that user. Empty = feature disabled (session auth only).
@@ -161,7 +163,7 @@ app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, https_only=True
 # Allow configured client origins (e.g. your OpenChat instance) to upload via credentialed fetch.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=ALLOWED_ORIGINS + NATIVE_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],

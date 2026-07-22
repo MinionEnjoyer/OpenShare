@@ -102,7 +102,9 @@ ARCHIVE_MAX_BYTES = ARCHIVE_MAX_MB * 1024 * 1024
 def classify_upload(filename: str, content_type: str) -> tuple[str | None, str]:
     """Return (media_type, normalized_mime). media_type is 'image', 'video',
     'pdf', 'model', 'text', 'archive', or None."""
-    mime = (content_type or "").lower()
+    # Strip any MIME parameters (e.g. "audio/webm;codecs=opus" -> "audio/webm") so
+    # codec-annotated uploads (common from MediaRecorder) still match the type sets.
+    mime = (content_type or "").split(";")[0].strip().lower()
     ext = Path(filename or "").suffix.lower()
     if mime in IMAGE_MIMES:
         return "image", mime

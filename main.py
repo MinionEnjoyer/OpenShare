@@ -820,6 +820,33 @@ def _bundle_dir_for(item: dict) -> Path | None:
     return None
 
 
+@app.post("/waveform")
+async def waveform_analyze(file: UploadFile = File(...)):
+    """Compute peaks + duration for an audio clip WITHOUT storing it — used by the recorder
+    to bake the waveform right after recording, for the preview. Public + size-capped."""
+    import tempfile
+    MAX = 30 * 1024 * 1024
+    suffix = Path(file.filename or "").suffix.lower() or ".bin"
+    tmp = tempfile.NamedTemporaryFile(prefix="wf_", suffix=suffix, delete=False)
+    tmp_path = Path(tmp.name)
+    try:
+        size = 0
+        while chunk := await file.read(1024 * 1024):
+            size += len(chunk)
+            if size > MAX:
+                raise HTTPException(413, "clip too large to analyze")
+            tmp.write(chunk)
+        tmp.close()
+        peaks, duration = await thumbs.make_audio_waveform(tmp_path)
+        return JSONResponse({"peaks": peaks, "duration": duration})
+    finally:
+        try:
+            tmp.close()
+        except Exception:
+            pass
+        tmp_path.unlink(missing_ok=True)
+
+
 @app.get("/waveform/{media_id}")
 async def waveform(media_id: str):
     """Audio-level peaks + duration for the waveform preview (public, like /raw).

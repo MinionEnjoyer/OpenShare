@@ -9,6 +9,7 @@ os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 
 THUMB_MAX = 480
 THUMB_QUALITY = 80
+WAVEFORM_BARS = 80  # number of peak buckets stored for the audio-level preview
 
 
 def make_image_thumb(src: Path, dst: Path) -> tuple[int | None, int | None]:
@@ -77,6 +78,58 @@ async def make_video_thumb(src: Path, dst: Path) -> tuple[int | None, int | None
         )
         await proc.wait()
     return width, height, duration
+
+
+async def make_audio_waveform(src: Path) -> tuple[list[int] | None, float | None]:
+    """Decode audio to mono PCM and return (peaks, duration_s). `peaks` is WAVEFORM_BARS
+    integers 0..100 (audio-level preview); reused by the chat player and OpenShare previews.
+    Best-effort — returns (None, duration?) if decoding fails."""
+    # Duration via ffprobe.
+    duration = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(src),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        out, _ = await proc.communicate()
+        try:
+            duration = float(out.decode(errors="ignore").strip())
+        except ValueError:
+            duration = None
+    except Exception:
+        pass
+
+    # Decode to mono 8 kHz signed-16-bit PCM on stdout (small + plenty for a preview).
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-v", "error",
+            "-i", str(src),
+            "-ac", "1", "-ar", "8000", "-f", "s16le", "-",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        )
+        raw, _ = await proc.communicate()
+    except Exception:
+        return None, duration
+    if not raw:
+        return None, duration
+
+    def _peaks(buf: bytes) -> list[int] | None:
+        import numpy as np
+        samples = np.frombuffer(buf, dtype=np.int16)
+        if samples.size == 0:
+            return None
+        buckets = np.array_split(np.abs(samples.astype(np.int32)), WAVEFORM_BARS)
+        vals = np.array([b.max() if b.size else 0 for b in buckets], dtype=np.float64)
+        m = vals.max()
+        if m <= 0:
+            return [0] * WAVEFORM_BARS
+        return [int(round(v / m * 100)) for v in vals]
+
+    peaks = await asyncio.to_thread(_peaks, raw)
+    return peaks, duration
 
 
 def _look_at(eye, target, up):

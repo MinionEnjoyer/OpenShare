@@ -93,6 +93,12 @@ async def init():
             await db.execute("ALTER TABLE media ADD COLUMN sha256 TEXT")
             await db.execute("CREATE INDEX IF NOT EXISTS idx_media_owner_hash ON media (owner_sub, sha256)")
 
+        # Audio-level peaks (JSON array) for the waveform preview; nullable for existing rows.
+        async with db.execute("PRAGMA table_info(media)") as cur:
+            cols3 = {r[1] for r in await cur.fetchall()}
+        if "waveform" not in cols3:
+            await db.execute("ALTER TABLE media ADD COLUMN waveform TEXT")
+
         await db.commit()
 
 

@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import json
 import mimetypes
 import os
 import secrets
@@ -546,6 +547,7 @@ async def upload(
 
         # Single-file path (existing)
         w = h = duration = None
+        waveform_json = None
         try:
             if media_type == "image":
                 w, h = await asyncio.to_thread(thumbs.make_image_thumb, storage_path, thumb_path)
@@ -553,6 +555,12 @@ async def upload(
                 w, h, duration = await thumbs.make_video_thumb(storage_path, thumb_path)
             elif media_type == "pdf":
                 w, h = await thumbs.make_pdf_thumb(storage_path, thumb_path)
+            elif media_type == "audio":
+                # No thumbnail; store peaks (audio-level preview) + duration instead.
+                peaks, duration = await thumbs.make_audio_waveform(storage_path)
+                if peaks:
+                    waveform_json = json.dumps(peaks)
+                thumb_path = None
             elif media_type == "model":
                 if ext in {".stl", ".obj", ".3mf", ".ply", ".off", ".fbx"}:
                     w, h = await thumbs.make_model_thumb(storage_path, thumb_path)
@@ -574,7 +582,7 @@ async def upload(
             "thumb_path": str(thumb_path) if thumb_path else None,
             "mime_type": mime, "size_bytes": size,
             "width": w, "height": h, "duration_s": duration,
-            "folder_id": target_folder, "sha256": digest,
+            "folder_id": target_folder, "sha256": digest, "waveform": waveform_json,
         })
         saved.append({"id": mid, "media_type": media_type})
 
@@ -810,6 +818,23 @@ def _bundle_dir_for(item: dict) -> Path | None:
     if parent.parent == FILES_DIR and parent.name == item["id"]:
         return parent
     return None
+
+
+@app.get("/waveform/{media_id}")
+async def waveform(media_id: str):
+    """Audio-level peaks + duration for the waveform preview (public, like /raw).
+    Returns {"peaks": [..0..100..] | null, "duration": seconds | null}."""
+    item = await db.get_media(media_id)
+    if not item:
+        raise HTTPException(404)
+    raw_wf = item.get("waveform")
+    peaks = None
+    if raw_wf:
+        try:
+            peaks = json.loads(raw_wf)
+        except (ValueError, TypeError):
+            peaks = None
+    return JSONResponse({"peaks": peaks, "duration": item.get("duration_s")})
 
 
 @app.get("/raw/{media_id}")

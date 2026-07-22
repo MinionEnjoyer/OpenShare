@@ -111,7 +111,7 @@
 
 <section class="grid" id="media-grid">
   {% for it in items %}
-  {% set view_prefix = {'image':'i','video':'v','pdf':'d','model':'m','text':'t','archive':'a'}[it.media_type] %}
+  {% set view_prefix = {'image':'i','video':'v','pdf':'d','model':'m','text':'t','archive':'a','audio':'au'}.get(it.media_type, 'd') %}
   {% set ext = (it.original_name.rsplit('.',1)[1] | upper) if '.' in it.original_name else '' %}
   <div class="tile-wrap" data-id="{{ it.id }}" data-href="/{{ view_prefix }}/{{ it.id }}">
     <div class="tile" draggable="true">
@@ -121,6 +121,8 @@
         <div class="thumb-missing model-thumb"><span class="model-cube">⬢</span><span class="model-ext">{{ ext }}</span></div>
       {% elif it.media_type == 'archive' %}
         <div class="thumb-missing model-thumb"><span class="model-cube">📦</span><span class="model-ext">{{ ext }}</span></div>
+      {% elif it.media_type == 'audio' %}
+        <div class="thumb-missing model-thumb"><span class="model-cube">🎵</span></div>
       {% else %}
         <div class="thumb-missing">{{ it.media_type }}</div>
       {% endif %}
@@ -128,10 +130,11 @@
       {% elif it.media_type == 'pdf' %}<span class="badge">PDF</span>
       {% elif it.media_type == 'model' %}<span class="badge">{{ ext }}</span>
       {% elif it.media_type == 'text' %}<span class="badge">{{ ext }}</span>
+      {% elif it.media_type == 'audio' %}<span class="badge">♪</span>
       {% elif it.media_type == 'archive' %}<span class="badge">{{ ext }}</span>{% endif %}
       <span class="select-check" title="Select"></span>
     </div>
-    {% if it.media_type in ('model','text','archive') %}
+    {% if it.media_type in ('model','text','archive','audio') %}
     <div class="tile-caption" title="{{ it.original_name }}">{{ it.original_name }}</div>
     {% endif %}
   </div>

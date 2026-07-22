@@ -85,6 +85,10 @@ main > * + * { margin-top: 1.25rem; }
 .viewer img, .viewer video { max-width: 100%; max-height: 80vh; display:block; border-radius: 6px; }
 .viewer .meta { display:flex; gap: 0.75rem; align-items:center; flex-wrap:wrap; justify-content: center; }
 .viewer .meta form { margin:0; display:inline; }
+.audio-player { display:flex; align-items:center; gap: 0.9rem; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 0.9rem 1.1rem; width: min(680px, 92vw); }
+.audio-play { flex-shrink:0; width: 42px; height: 42px; border-radius: 50%; padding: 0; font-size: 15px; line-height: 1; }
+.audio-wave { flex: 1; min-width: 0; height: 72px; cursor: pointer; }
+.audio-time { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 13px; }
 
 .video-fallback {
   display:flex; flex-direction:column; align-items:center; gap: 0.75rem;

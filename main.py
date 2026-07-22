@@ -725,6 +725,18 @@ async def view_archive(request: Request, media_id: str):
     })
 
 
+@app.get("/au/{media_id}", response_class=HTMLResponse)
+async def view_audio(request: Request, media_id: str):
+    item = await db.get_media(media_id)
+    if not item or item["media_type"] != "audio":
+        raise HTTPException(404)
+    return templates.TemplateResponse("view_audio.html", {
+        "request": request,
+        "item": item,
+        "public_url": PUBLIC_URL,
+    })
+
+
 @app.get("/t/{media_id}", response_class=HTMLResponse)
 async def view_text(request: Request, media_id: str):
     item = await db.get_media(media_id)

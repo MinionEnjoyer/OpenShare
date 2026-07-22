@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}{{ item.original_name }} — OpenShare{% endblock %}
+{% block meta %}
+<meta property="og:title" content="{{ item.original_name }}">
+<meta property="og:type" content="music.song">
+<meta property="og:audio" content="{{ public_url }}/raw/{{ item.id }}">
+<meta property="og:url" content="{{ public_url }}/au/{{ item.id }}">
+{% endblock %}
+{% block content %}
+<div class="viewer">
+  <div class="audio-player">
+    <button id="playBtn" class="btn primary audio-play" type="button" aria-label="Play">▶</button>
+    <canvas id="wave" class="audio-wave"></canvas>
+    <div class="audio-time"><span id="cur">0:00</span> / <span id="dur">0:00</span></div>
+  </div>
+  <audio id="player" preload="metadata" src="/raw/{{ item.id }}"></audio>
+  <div class="meta">
+    <span class="muted">by {{ item.owner_username }}</span>
+    <span class="muted">· {{ item.original_name }}</span>
+    <a class="btn" href="/raw/{{ item.id }}" download="{{ item.original_name }}">Download</a>
+    <button class="btn" onclick="navigator.clipboard.writeText(location.href)">Copy link</button>
+    {% if user and user.sub == item.owner_sub %}
+    <form action="/delete/{{ item.id }}" method="post" onsubmit="return confirm('Delete this?')">
+      <button class="btn danger" type="submit">Delete</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+<script>
+(function () {
+  const audio = document.getElementById('player');
+  const btn = document.getElementById('playBtn');
+  const canvas = document.getElementById('wave');
+  const curEl = document.getElementById('cur');
+  const durEl = document.getElementById('dur');
+  const ctx = canvas.getContext('2d');
+  let peaks = [];
+  const css = getComputedStyle(document.documentElement);
+  const accent = (css.getPropertyValue('--accent') || '#4f9cf9').trim();
+  const unplayed = (css.getPropertyValue('--line') || '#2a2d35').trim();
+
+  function fmt(s) { if (!isFinite(s) || s < 0) s = 0; const m = Math.floor(s / 60); return m + ':' + String(Math.floor(s % 60)).padStart(2, '0'); }
+
+  function draw() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (canvas.width !== w * dpr || canvas.height !== h * dpr) { canvas.width = w * dpr; canvas.height = h * dpr; }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    if (!peaks.length) return;
+    const n = peaks.length, gap = 2;
+    const bw = Math.max(1, (w - gap * (n - 1)) / n);
+    const frac = audio.duration ? audio.currentTime / audio.duration : 0;
+    for (let i = 0; i < n; i++) {
+      const ph = Math.max(2, (peaks[i] / 100) * h);
+      const x = i * (bw + gap), y = (h - ph) / 2;
+      ctx.fillStyle = (i / n <= frac) ? accent : unplayed;
+      ctx.fillRect(x, y, bw, ph);
+    }
+  }
+
+  fetch('/waveform/{{ item.id }}').then(r => r.ok ? r.json() : null).then(d => {
+    if (d && Array.isArray(d.peaks) && d.peaks.length) peaks = d.peaks;
+    if (d && typeof d.duration === 'number' && d.duration > 0) durEl.textContent = fmt(d.duration);
+    draw();
+  }).catch(() => {});
+
+  btn.addEventListener('click', () => { if (audio.paused) audio.play(); else audio.pause(); });
+  audio.addEventListener('play', () => { btn.textContent = '⏸'; });
+  audio.addEventListener('pause', () => { btn.textContent = '▶'; });
+  audio.addEventListener('ended', () => { btn.textContent = '▶'; });
+  audio.addEventListener('loadedmetadata', () => { durEl.textContent = fmt(audio.duration); draw(); });
+  audio.addEventListener('timeupdate', () => { curEl.textContent = fmt(audio.currentTime); draw(); });
+  canvas.addEventListener('click', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const f = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    if (audio.duration) audio.currentTime = f * audio.duration;
+  });
+  window.addEventListener('resize', draw);
+  draw();
+})();
+</script>
+{% endblock %}

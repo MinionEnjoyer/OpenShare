@@ -13,7 +13,7 @@ share links — and doubles as the upload/attachment backend for
 
 ## Features
 
-- **In-browser viewers** for images, video, PDFs, text/code, archives (browse inside `.zip`),
+- **In-browser viewers** for images, video, audio, PDFs, text/code, archives (browse inside `.zip`),
   and **3D models** (rendered previews).
 - **Automatic thumbnails** for images, video frames, PDFs, and 3D models.
 - **Content-hash de-duplication** — the same file uploaded twice is stored once.

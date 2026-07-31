@@ -311,9 +311,9 @@ async def _render_owner_view(request, user, folder):
     breadcrumb = await db.folder_breadcrumb(folder_id)
     all_folders = await db.folder_list_all_for_owner(user["sub"])
     return templates.TemplateResponse(
-        "gallery.html",
-        {
-            "request": request,
+        request=request,
+        name="gallery.html",
+        context={
             "user": user,
             "user_storage": await _storage_for(user),
             "folder": folder,
@@ -330,7 +330,11 @@ async def _render_owner_view(request, user, folder):
 async def index(request: Request):
     user = auth.user_from_session(request.session)
     if not user:
-        return templates.TemplateResponse("login.html", {"request": request, "public_url": PUBLIC_URL})
+        return templates.TemplateResponse(
+            request=request,
+            name="login.html",
+            context={"public_url": PUBLIC_URL},
+        )
     return await _render_owner_view(request, user, None)
 
 
@@ -781,8 +785,7 @@ async def _view(request: Request, media_id: str, expected: str):
     if not item or item["media_type"] != expected:
         raise HTTPException(404)
     template = "view_image.html" if expected == "image" else "view_video.html"
-    return templates.TemplateResponse(template, {
-        "request": request,
+    return templates.TemplateResponse(request=request, name=template, context={
         "item": item,
         "public_url": PUBLIC_URL,
     })
@@ -803,8 +806,7 @@ async def view_pdf(request: Request, media_id: str):
     item = await db.get_media(media_id)
     if not item or item["media_type"] != "pdf":
         raise HTTPException(404)
-    return templates.TemplateResponse("view_pdf.html", {
-        "request": request,
+    return templates.TemplateResponse(request=request, name="view_pdf.html", context={
         "item": item,
         "public_url": PUBLIC_URL,
     })
@@ -835,8 +837,7 @@ async def view_archive(request: Request, media_id: str):
     item = await db.get_media(media_id)
     if not item or item["media_type"] != "archive":
         raise HTTPException(404)
-    return templates.TemplateResponse("view_archive.html", {
-        "request": request,
+    return templates.TemplateResponse(request=request, name="view_archive.html", context={
         "item": item,
         "public_url": PUBLIC_URL,
     })
@@ -847,8 +848,7 @@ async def view_audio(request: Request, media_id: str):
     item = await db.get_media(media_id)
     if not item or item["media_type"] != "audio":
         raise HTTPException(404)
-    return templates.TemplateResponse("view_audio.html", {
-        "request": request,
+    return templates.TemplateResponse(request=request, name="view_audio.html", context={
         "item": item,
         "public_url": PUBLIC_URL,
     })
@@ -871,8 +871,7 @@ async def view_text(request: Request, media_id: str):
         body, truncated = "(unable to read file)", False
     ext = Path(item["original_name"]).suffix.lower()
     lang = _HLJS_LANG_BY_EXT.get(ext, "plaintext")
-    return templates.TemplateResponse("view_text.html", {
-        "request": request,
+    return templates.TemplateResponse(request=request, name="view_text.html", context={
         "item": item,
         "body": body,
         "lang": lang,
@@ -894,8 +893,7 @@ async def view_model(request: Request, media_id: str):
             if sibling.suffix.lower() == ".mtl":
                 mtl_name = sibling.name
                 break
-    return templates.TemplateResponse("view_3d.html", {
-        "request": request,
+    return templates.TemplateResponse(request=request, name="view_3d.html", context={
         "item": item,
         "ext": ext,
         "mtl_name": mtl_name,
@@ -910,8 +908,7 @@ async def search(request: Request, q: str = "", user: dict = Depends(require_use
     if q:
         items = await db.search_media(user["sub"], q)
         folders = await db.search_folders(user["sub"], q)
-    return templates.TemplateResponse("search.html", {
-        "request": request,
+    return templates.TemplateResponse(request=request, name="search.html", context={
         "user": user,
         "user_storage": await _storage_for(user),
         "q": q,
@@ -927,9 +924,9 @@ async def view_folder_public(folder_id: str, request: Request):
     if not data:
         raise HTTPException(404)
     return templates.TemplateResponse(
-        "public_folder.html",
-        {
-            "request": request,
+        request=request,
+        name="public_folder.html",
+        context={
             "folder": data["folder"],
             "subfolders": data["subfolders"],
             "items": data["items"],

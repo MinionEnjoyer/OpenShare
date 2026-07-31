@@ -84,3 +84,22 @@ OpenShare — it simply hides file/image uploads.
 - File metadata (owners, folders, hashes) lives in a small SQLite DB on the `openshare_data` volume.
 
 Both persist across rebuilds; neither is ever committed to git.
+
+## Testing
+
+The test harness runs entirely in-process. It creates a fresh SQLite database and storage tree
+for every integration test, supplies deterministic media processors, and never contacts OIDC,
+ffmpeg, OpenChat, or a deployed OpenShare instance.
+
+```bash
+python -m venv .venv
+. .venv/bin/activate
+pip install -r requirements-dev.txt
+make test            # complete suite
+make test-unit       # fast classification/configuration checks
+make test-integration
+make test-cov        # branch coverage + coverage.xml
+make verify          # lint, coverage, and production dependency audit
+```
+
+See [`tests/README.md`](tests/README.md) for fixtures, request identities, and examples.

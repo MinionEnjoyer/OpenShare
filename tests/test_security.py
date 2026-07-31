@@ -5,11 +5,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
-from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 import db
 import main
+from conftest import OpenShareHarness
 
 
 def request_with_headers(*headers: tuple[str, str], session=None) -> Request:
@@ -22,6 +22,7 @@ def request_with_headers(*headers: tuple[str, str], session=None) -> Request:
     })
 
 
+@pytest.mark.unit
 def test_service_identity_is_scoped_away_from_owner_routes():
     request = request_with_headers(
         ("authorization", "Bearer test-share-key"),
@@ -33,6 +34,7 @@ def test_service_identity_is_scoped_away_from_owner_routes():
     assert exc.value.status_code == 401
 
 
+@pytest.mark.unit
 def test_invalid_service_key_cannot_fall_back_to_a_browser_session():
     request = request_with_headers(
         ("authorization", "Bearer wrong"),
@@ -44,15 +46,21 @@ def test_invalid_service_key_cannot_fall_back_to_a_browser_session():
     assert exc.value.status_code == 401
 
 
-def test_cross_origin_mutation_is_rejected():
-    response = TestClient(main.app).post(
+@pytest.mark.integration
+def test_cross_origin_mutation_is_rejected(harness: OpenShareHarness):
+    response = harness.client.post(
         "/bulk/delete",
-        headers={"origin": "https://evil.example"},
+        headers={
+            "origin": "https://evil.example",
+            "x-test-owner-sub": "owner-1",
+            "x-test-owner-name": "owner",
+        },
         json={"ids": []},
     )
     assert response.status_code == 403
 
 
+@pytest.mark.unit
 def test_uploaded_html_is_served_as_plain_text(monkeypatch, tmp_path: Path):
     html = tmp_path / "payload.html"
     html.write_text("<script>window.pwned = true</script>", encoding="utf-8")
@@ -66,6 +74,7 @@ def test_uploaded_html_is_served_as_plain_text(monkeypatch, tmp_path: Path):
     assert response.media_type == "text/plain; charset=utf-8"
 
 
+@pytest.mark.unit
 def test_active_file_inside_bundle_is_served_as_plain_text(monkeypatch, tmp_path: Path):
     files_dir = tmp_path / "files"
     bundle_dir = files_dir / "asset"
@@ -83,6 +92,7 @@ def test_active_file_inside_bundle_is_served_as_plain_text(monkeypatch, tmp_path
     assert response.media_type == "text/plain; charset=utf-8"
 
 
+@pytest.mark.unit
 def test_archive_expansion_limit_is_opt_in_and_enforced(monkeypatch, tmp_path: Path):
     archive = tmp_path / "bundle.zip"
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
@@ -95,10 +105,12 @@ def test_archive_expansion_limit_is_opt_in_and_enforced(monkeypatch, tmp_path: P
     assert exc.value.status_code == 413
 
 
+@pytest.mark.unit
 def test_new_public_ids_have_128_bits_of_entropy_or_more():
     assert len(main.new_id()) >= 22
 
 
+@pytest.mark.unit
 def test_sqlite_connections_enable_integrity_and_locking_pragmas(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "gallery.db")
 

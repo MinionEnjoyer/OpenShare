@@ -1,7 +1,20 @@
 import aiosqlite
+import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-DB_PATH = Path("/data/gallery.db")
+DB_PATH = Path(os.environ.get("DATABASE_FILE", "/data/gallery.db"))
+
+
+@asynccontextmanager
+async def connect_db():
+    db = await aiosqlite.connect(DB_PATH, timeout=30)
+    try:
+        await db.execute("PRAGMA foreign_keys=ON")
+        await db.execute("PRAGMA busy_timeout=30000")
+        yield db
+    finally:
+        await db.close()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS media (
@@ -34,7 +47,8 @@ CREATE INDEX IF NOT EXISTS idx_folders_owner_parent ON folders (owner_sub, paren
 
 async def init():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
+        await db.execute("PRAGMA journal_mode=WAL")
         await db.executescript(SCHEMA)
         async with db.execute("PRAGMA table_info(media)") as cur:
             cols = {r[1] for r in await cur.fetchall()}
@@ -105,7 +119,7 @@ async def init():
 # ---------- media ----------
 
 async def insert_media(item: dict):
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         cols = ",".join(item.keys())
         placeholders = ",".join(["?"] * len(item))
         await db.execute(f"INSERT INTO media ({cols}) VALUES ({placeholders})", tuple(item.values()))
@@ -116,7 +130,7 @@ async def find_media_by_hash(owner_sub: str, sha256: str):
     """Return an existing media row with the same owner + content hash, for de-duplication."""
     if not sha256:
         return None
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM media WHERE owner_sub=? AND sha256=? LIMIT 1", (owner_sub, sha256)
@@ -127,7 +141,7 @@ async def find_media_by_hash(owner_sub: str, sha256: str):
 
 async def folder_find_or_create(owner_sub: str, name: str, fid_if_new: str) -> str:
     """Find a top-level folder by name for this owner, or create it. Returns the folder id."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT id FROM folders WHERE owner_sub=? AND parent_id IS NULL AND name=? LIMIT 1",
@@ -145,7 +159,7 @@ async def folder_find_or_create(owner_sub: str, name: str, fid_if_new: str) -> s
 
 
 async def get_media(media_id: str):
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM media WHERE id=?", (media_id,)) as cur:
             row = await cur.fetchone()
@@ -153,7 +167,7 @@ async def get_media(media_id: str):
 
 
 async def list_media_in_folder(owner_sub: str, folder_id: str | None):
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         if folder_id is None:
             sql = "SELECT * FROM media WHERE owner_sub=? AND folder_id IS NULL ORDER BY uploaded_at DESC"
@@ -166,7 +180,7 @@ async def list_media_in_folder(owner_sub: str, folder_id: str | None):
 
 
 async def delete_media(media_id: str, owner_sub: str) -> bool:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         cur = await db.execute(
             "DELETE FROM media WHERE id=? AND owner_sub=?", (media_id, owner_sub)
         )
@@ -175,7 +189,7 @@ async def delete_media(media_id: str, owner_sub: str) -> bool:
 
 
 async def move_media(media_id: str, owner_sub: str, folder_id: str | None) -> bool:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         if folder_id is not None:
             async with db.execute(
                 "SELECT 1 FROM folders WHERE id=? AND owner_sub=?", (folder_id, owner_sub)
@@ -193,7 +207,7 @@ async def move_media(media_id: str, owner_sub: str, folder_id: str | None) -> bo
 async def bulk_move_media(ids: list[str], owner_sub: str, folder_id: str | None) -> int:
     if not ids:
         return 0
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         if folder_id is not None:
             async with db.execute(
                 "SELECT 1 FROM folders WHERE id=? AND owner_sub=?", (folder_id, owner_sub)
@@ -213,7 +227,7 @@ async def bulk_delete_media(ids: list[str], owner_sub: str) -> list[dict]:
     """Returns the rows of media that were deleted, for caller to clean up storage."""
     if not ids:
         return []
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         placeholders = ",".join(["?"] * len(ids))
         async with db.execute(
@@ -236,7 +250,7 @@ async def bulk_delete_media(ids: list[str], owner_sub: str) -> list[dict]:
 # ---------- folders ----------
 
 async def folder_create(folder_id: str, owner_sub: str, name: str, parent_id: str | None) -> bool:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         if parent_id is not None:
             async with db.execute(
                 "SELECT 1 FROM folders WHERE id=? AND owner_sub=?", (parent_id, owner_sub)
@@ -252,7 +266,7 @@ async def folder_create(folder_id: str, owner_sub: str, name: str, parent_id: st
 
 
 async def folder_get(folder_id: str):
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM folders WHERE id=?", (folder_id,)) as cur:
             row = await cur.fetchone()
@@ -260,7 +274,7 @@ async def folder_get(folder_id: str):
 
 
 async def folder_list_children(owner_sub: str, parent_id: str | None):
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         if parent_id is None:
             sql = "SELECT * FROM folders WHERE owner_sub=? AND parent_id IS NULL ORDER BY name"
@@ -278,7 +292,7 @@ async def folder_breadcrumb(folder_id: str | None):
         return []
     chain = []
     seen = set()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         cur_id = folder_id
         while cur_id and cur_id not in seen:
@@ -296,7 +310,7 @@ async def folder_breadcrumb(folder_id: str | None):
 
 
 async def folder_rename(folder_id: str, owner_sub: str, name: str) -> bool:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         cur = await db.execute(
             "UPDATE folders SET name=? WHERE id=? AND owner_sub=?",
             (name.strip()[:120], folder_id, owner_sub),
@@ -307,7 +321,7 @@ async def folder_rename(folder_id: str, owner_sub: str, name: str) -> bool:
 
 async def folder_delete(folder_id: str, owner_sub: str) -> bool:
     """Re-parent direct children (subfolders + media) up to this folder's parent, then delete."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT parent_id FROM folders WHERE id=? AND owner_sub=?", (folder_id, owner_sub)
@@ -349,7 +363,7 @@ async def _folder_descendant_ids(db, folder_id: str) -> set:
 async def folder_move(folder_id: str, owner_sub: str, new_parent_id: str | None) -> bool:
     if new_parent_id == folder_id:
         return False
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         if new_parent_id is not None:
             async with db.execute(
                 "SELECT 1 FROM folders WHERE id=? AND owner_sub=?", (new_parent_id, owner_sub)
@@ -369,7 +383,7 @@ async def folder_move(folder_id: str, owner_sub: str, new_parent_id: str | None)
 
 async def folder_list_all_for_owner(owner_sub: str):
     """For folder pickers — returns id, name, parent_id."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT id, name, parent_id FROM folders WHERE owner_sub=? ORDER BY name", (owner_sub,)
@@ -378,7 +392,7 @@ async def folder_list_all_for_owner(owner_sub: str):
 
 
 async def owner_storage_bytes(owner_sub: str) -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         async with db.execute(
             "SELECT COALESCE(SUM(size_bytes), 0) FROM media WHERE owner_sub=?", (owner_sub,)
         ) as cur:
@@ -387,7 +401,7 @@ async def owner_storage_bytes(owner_sub: str) -> int:
 
 
 async def list_media_missing_thumbs(media_type: str | None = None):
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         if media_type:
             sql = "SELECT * FROM media WHERE thumb_path IS NULL AND media_type=?"
@@ -400,14 +414,14 @@ async def list_media_missing_thumbs(media_type: str | None = None):
 
 
 async def update_thumb_path(media_id: str, thumb_path: str | None):
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         await db.execute("UPDATE media SET thumb_path=? WHERE id=?", (thumb_path, media_id))
         await db.commit()
 
 
 async def search_media(owner_sub: str, q: str, limit: int = 200):
     pat = f"%{q}%"
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM media WHERE owner_sub=? AND original_name LIKE ? COLLATE NOCASE "
@@ -419,7 +433,7 @@ async def search_media(owner_sub: str, q: str, limit: int = 200):
 
 async def search_folders(owner_sub: str, q: str, limit: int = 100):
     pat = f"%{q}%"
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM folders WHERE owner_sub=? AND name LIKE ? COLLATE NOCASE "
@@ -431,7 +445,7 @@ async def search_folders(owner_sub: str, q: str, limit: int = 100):
 
 async def folder_public_view(folder_id: str):
     """Return folder + subfolders + media (regardless of owner check — for /f/<id>)."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM folders WHERE id=?", (folder_id,)) as cur:
             folder = await cur.fetchone()

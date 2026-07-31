@@ -1,7 +1,6 @@
 """Thumbnail generation. Images via Pillow; videos via ffmpeg; PDFs via pdftoppm; 3D via pyrender (OpenGL/EGL)."""
 import asyncio
 import os
-import subprocess
 from pathlib import Path
 from PIL import Image, ImageOps
 

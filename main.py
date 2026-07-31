@@ -6,7 +6,9 @@ import os
 import secrets
 import shutil
 import zipfile
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, Depends, Body
 from fastapi.responses import RedirectResponse, FileResponse, JSONResponse, HTMLResponse
@@ -34,6 +36,32 @@ NATIVE_ORIGINS = ["tauri://localhost", "http://tauri.localhost", "https://tauri.
 # on a user's behalf). When set, a request bearing this key + an X-Share-User-Sub header
 # is treated as that user. Empty = feature disabled (session auth only).
 SHARE_API_KEY = os.environ.get("SHARE_API_KEY", "").strip()
+
+
+def optional_positive_int(name: str) -> int | None:
+    """Return a positive configured integer; unset/zero means no operator limit."""
+    raw = os.environ.get(name, "").strip()
+    if not raw or raw == "0":
+        return None
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be a positive integer or unset") from exc
+    if value < 1:
+        raise RuntimeError(f"{name} must be a positive integer or unset")
+    return value
+
+
+UPLOAD_MAX_FILES = optional_positive_int("UPLOAD_MAX_FILES")
+UPLOAD_MAX_BYTES = (value * 1024 * 1024 if (value := optional_positive_int("UPLOAD_MAX_MB")) else None)
+UPLOAD_TOTAL_MAX_BYTES = (value * 1024 * 1024 if (value := optional_positive_int("UPLOAD_TOTAL_MAX_MB")) else None)
+ARCHIVE_MAX_BYTES = (value * 1024 * 1024 if (value := optional_positive_int("ARCHIVE_MAX_MB")) else None)
+ARCHIVE_EXPANDED_MAX_BYTES = (value * 1024 * 1024 if (value := optional_positive_int("ARCHIVE_EXPANDED_MAX_MB")) else None)
+ARCHIVE_MAX_ENTRIES = optional_positive_int("ARCHIVE_MAX_ENTRIES")
+PROCESSING_MAX_CONCURRENCY = optional_positive_int("PROCESSING_MAX_CONCURRENCY")
+PROCESSING_TIMEOUT_SECONDS = optional_positive_int("PROCESSING_TIMEOUT_SECONDS")
+WAVEFORM_MAX_BYTES = (value * 1024 * 1024 if (value := optional_positive_int("WAVEFORM_MAX_MB")) else None)
+_processing_semaphore = asyncio.Semaphore(PROCESSING_MAX_CONCURRENCY) if PROCESSING_MAX_CONCURRENCY else None
 
 IMAGE_MIMES = {
     "image/jpeg", "image/png", "image/gif", "image/webp",
@@ -95,11 +123,6 @@ ARCHIVE_EXTS = {
     ".vpk", ".pak",
 }
 
-# Max size for archive uploads (env ARCHIVE_MAX_MB, default 2048 MB / 2 GiB).
-ARCHIVE_MAX_MB = int(os.environ.get("ARCHIVE_MAX_MB", "2048"))
-ARCHIVE_MAX_BYTES = ARCHIVE_MAX_MB * 1024 * 1024
-
-
 def classify_upload(filename: str, content_type: str) -> tuple[str | None, str]:
     """Return (media_type, normalized_mime). media_type is 'image', 'video',
     'pdf', 'model', 'text', 'archive', or None."""
@@ -144,8 +167,21 @@ def classify_upload(filename: str, content_type: str) -> tuple[str | None, str]:
 ID_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 
-def new_id(n: int = 8) -> str:
+def new_id(n: int = 22) -> str:
     return "".join(secrets.choice(ID_ALPHABET) for _ in range(n))
+
+
+async def bounded_processing(awaitable):
+    """Apply optional operator-configured concurrency and timeout controls."""
+    async def run():
+        if PROCESSING_TIMEOUT_SECONDS:
+            return await asyncio.wait_for(awaitable, timeout=PROCESSING_TIMEOUT_SECONDS)
+        return await awaitable
+
+    if _processing_semaphore is None:
+        return await run()
+    async with _processing_semaphore:
+        return await run()
 
 
 def humanize_bytes(n: int) -> str:
@@ -161,7 +197,22 @@ async def _storage_for(user: dict) -> str:
     return humanize_bytes(await db.owner_storage_bytes(user["sub"]))
 
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    FILES_DIR.mkdir(parents=True, exist_ok=True)
+    THUMBS_DIR.mkdir(parents=True, exist_ok=True)
+    await db.init()
+    backfill = asyncio.create_task(_backfill_model_thumbs())
+    try:
+        yield
+    finally:
+        if not backfill.done():
+            backfill.cancel()
+            with suppress(asyncio.CancelledError):
+                await backfill
+
+
+app = FastAPI(lifespan=lifespan)
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, https_only=True, same_site="lax")
 # Allow configured client origins (e.g. your OpenChat instance) to upload via credentialed fetch.
 app.add_middleware(
@@ -169,18 +220,36 @@ app.add_middleware(
     allow_origins=ALLOWED_ORIGINS + NATIVE_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["*"],
+    allow_headers=["Authorization", "Content-Type", "X-Share-User-Sub", "X-Share-User-Name"],
 )
+
+public_origin = f"{urlsplit(PUBLIC_URL).scheme}://{urlsplit(PUBLIC_URL).netloc}"
+trusted_origins = {public_origin, *ALLOWED_ORIGINS, *NATIVE_ORIGINS}
+
+
+@app.middleware("http")
+async def security_boundary(request: Request, call_next):
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        authorization = request.headers.get("authorization", "")
+        service_upload = request.url.path in {"/upload", "/waveform"} and authorization.startswith("Bearer ")
+        if not service_upload:
+            origin = request.headers.get("origin", "")
+            if origin not in trusted_origins:
+                return JSONResponse({"detail": "untrusted request origin"}, status_code=403)
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; "
+        "img-src 'self' data: blob:; media-src 'self' blob:; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; "
+        "connect-src 'self' https://cdn.jsdelivr.net https://unpkg.com"
+    )
+    return response
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
-
-
-@app.on_event("startup")
-async def startup():
-    FILES_DIR.mkdir(parents=True, exist_ok=True)
-    THUMBS_DIR.mkdir(parents=True, exist_ok=True)
-    await db.init()
-    asyncio.create_task(_backfill_model_thumbs())
 
 
 async def _backfill_model_thumbs():
@@ -198,7 +267,7 @@ async def _backfill_model_thumbs():
             if ext not in {".stl", ".obj", ".3mf", ".ply", ".off", ".fbx"}:
                 continue
             thumb_path = THUMBS_DIR / f"{item['id']}.jpg"
-            w, h = await thumbs.make_model_thumb(src, thumb_path)
+            w, h = await bounded_processing(thumbs.make_model_thumb(src, thumb_path))
             if thumb_path.exists():
                 await db.update_thumb_path(item["id"], str(thumb_path))
         except Exception:
@@ -206,18 +275,26 @@ async def _backfill_model_thumbs():
 
 
 def require_user(request: Request) -> dict:
-    # Trusted service call (chat API uploading for a user): Bearer <SHARE_API_KEY>
-    # + X-Share-User-Sub identifies the owner without a browser session.
-    if SHARE_API_KEY:
-        header = request.headers.get("authorization", "")
-        if header == f"Bearer {SHARE_API_KEY}":
-            sub = request.headers.get("x-share-user-sub", "").strip()
-            if sub:
-                return {"sub": sub, "username": request.headers.get("x-share-user-name", "").strip() or sub}
+    """Browser owner operations require an OpenShare session."""
     u = auth.user_from_session(request.session)
     if not u:
         raise HTTPException(status_code=401, detail="not logged in")
     return u
+
+
+def require_upload_user(request: Request) -> dict:
+    """Upload/processing accepts a browser session or the scoped OpenChat service key."""
+    header = request.headers.get("authorization", "")
+    if header:
+        if not SHARE_API_KEY:
+            raise HTTPException(status_code=401, detail="service uploads are disabled")
+        supplied = header[7:] if header.startswith("Bearer ") else ""
+        if supplied and secrets.compare_digest(supplied, SHARE_API_KEY):
+            sub = request.headers.get("x-share-user-sub", "").strip()
+            if sub:
+                return {"sub": sub, "username": request.headers.get("x-share-user-name", "").strip() or sub}
+        raise HTTPException(status_code=401, detail="invalid service credentials")
+    return require_user(request)
 
 
 async def _owner_folder(folder_id: str, owner_sub: str) -> dict:
@@ -380,10 +457,16 @@ async def _save_bundle(mid: str, primary: UploadFile, aux: list[UploadFile]) -> 
         # Strip any path components — store by basename only
         name = Path(f.filename or "file").name
         dest = bundle_dir / name
+        file_size = 0
         with open(dest, "wb") as out:
             while chunk := await f.read(1024 * 1024):
+                file_size += len(chunk)
                 total += len(chunk)
-                out.write(chunk)
+                if UPLOAD_MAX_BYTES and file_size > UPLOAD_MAX_BYTES:
+                    raise HTTPException(413, f"file exceeds configured {UPLOAD_MAX_BYTES // (1024 * 1024)} MB limit")
+                if UPLOAD_TOTAL_MAX_BYTES and total > UPLOAD_TOTAL_MAX_BYTES:
+                    raise HTTPException(413, "upload exceeds configured total size limit")
+                await asyncio.to_thread(out.write, chunk)
         out_paths.append(dest)
     primary_path = bundle_dir / Path(primary.filename or "").name
     return primary_path, total
@@ -395,6 +478,11 @@ def _extract_zip_bundle(zip_path: Path, mid: str) -> tuple[Path, int, str] | Non
     try:
         with zipfile.ZipFile(zip_path, "r") as zf:
             members = [m for m in zf.infolist() if not m.is_dir()]
+            if ARCHIVE_MAX_ENTRIES and len(members) > ARCHIVE_MAX_ENTRIES:
+                raise HTTPException(413, "archive exceeds configured entry limit")
+            expanded_size = sum(member.file_size for member in members)
+            if ARCHIVE_EXPANDED_MAX_BYTES and expanded_size > ARCHIVE_EXPANDED_MAX_BYTES:
+                raise HTTPException(413, "archive exceeds configured expanded-size limit")
             # Use basenames to flatten any internal directories
             basenames = [Path(m.filename).name for m in members]
             primary_idx = [
@@ -414,10 +502,15 @@ def _extract_zip_bundle(zip_path: Path, mid: str) -> tuple[Path, int, str] | Non
                     continue
                 dest = bundle_dir / name
                 with zf.open(member) as src, open(dest, "wb") as dst:
-                    shutil.copyfileobj(src, dst)
-                total += dest.stat().st_size
+                    while chunk := src.read(1024 * 1024):
+                        total += len(chunk)
+                        if ARCHIVE_EXPANDED_MAX_BYTES and total > ARCHIVE_EXPANDED_MAX_BYTES:
+                            raise HTTPException(413, "archive exceeds configured expanded-size limit")
+                        dst.write(chunk)
             primary_name = basenames[primary_idx[0]]
             return bundle_dir / primary_name, total, primary_name
+    except HTTPException:
+        raise
     except (zipfile.BadZipFile, KeyError, OSError):
         return None
 
@@ -428,8 +521,10 @@ async def upload(
     files: list[UploadFile] = File(...),
     folder_id: str = Form(""),
     source: str = Form(""),
-    user: dict = Depends(require_user),
+    user: dict = Depends(require_upload_user),
 ):
+    if UPLOAD_MAX_FILES and len(files) > UPLOAD_MAX_FILES:
+        raise HTTPException(413, f"upload exceeds configured {UPLOAD_MAX_FILES}-file limit")
     target_folder = folder_id or None
     if target_folder is not None:
         await _owner_folder(target_folder, user["sub"])
@@ -451,7 +546,7 @@ async def upload(
             ext = primary_path.suffix.lower()
             w = h = None
             if ext in {".stl", ".obj", ".3mf", ".ply", ".off", ".fbx"}:
-                w, h = await thumbs.make_model_thumb(primary_path, thumb_path)
+                w, h = await bounded_processing(thumbs.make_model_thumb(primary_path, thumb_path))
             if not thumb_path.exists():
                 thumb_path = None
             _, primary_mime = classify_upload(primary.filename or "", primary.content_type or "")
@@ -472,6 +567,7 @@ async def upload(
             return JSONResponse({"saved": saved, "rejected": rejected})
 
     # Path 2 — per-file processing (existing behavior, plus zip-bundle handling)
+    request_total = 0
     for f in files:
         media_type, mime = classify_upload(f.filename or "", f.content_type or "")
         is_zip = (Path(f.filename or "").suffix.lower() == ".zip")
@@ -492,24 +588,31 @@ async def upload(
         with open(storage_path, "wb") as out:
             while chunk := await f.read(1024 * 1024):
                 size += len(chunk)
-                if media_type == "archive" and size > ARCHIVE_MAX_BYTES:
+                request_total += len(chunk)
+                if UPLOAD_MAX_BYTES and size > UPLOAD_MAX_BYTES:
+                    too_big = True
+                    break
+                if UPLOAD_TOTAL_MAX_BYTES and request_total > UPLOAD_TOTAL_MAX_BYTES:
+                    too_big = True
+                    break
+                if media_type == "archive" and ARCHIVE_MAX_BYTES and size > ARCHIVE_MAX_BYTES:
                     too_big = True
                     break
                 hasher.update(chunk)
-                out.write(chunk)
+                await asyncio.to_thread(out.write, chunk)
         digest = hasher.hexdigest()
         if too_big:
             storage_path.unlink(missing_ok=True)
             shutil.rmtree(FILES_DIR / mid, ignore_errors=True)
-            rejected.append({"name": f.filename or "(archive)",
-                             "reason": f"archive exceeds {ARCHIVE_MAX_MB} MB limit"})
+            rejected.append({"name": f.filename or "(file)",
+                             "reason": "file exceeds an operator-configured upload limit"})
             continue
 
         # Unknown container that turned out to be audio → transcode to MP3 so it both
         # uploads and plays; otherwise it's genuinely unsupported and we reject it.
         if maybe_audio:
             mp3_path = FILES_DIR / f"{mid}.mp3"
-            ok = await thumbs.transcode_audio_to_mp3(storage_path, mp3_path)
+            ok = await bounded_processing(thumbs.transcode_audio_to_mp3(storage_path, mp3_path))
             storage_path.unlink(missing_ok=True)  # drop the original container regardless
             if not ok:
                 mp3_path.unlink(missing_ok=True)
@@ -523,7 +626,7 @@ async def upload(
         # ZIP path: if this zip is a 3D bundle, extract and treat as 'model'.
         # Otherwise keep the .zip as a plain downloadable archive (fall through).
         if is_zip:
-            bundle_info = _extract_zip_bundle(storage_path, mid)
+            bundle_info = await asyncio.to_thread(_extract_zip_bundle, storage_path, mid)
             if bundle_info is not None:
                 storage_path.unlink(missing_ok=True)  # extracted; drop the raw zip
                 primary_path, size, primary_name = bundle_info
@@ -531,7 +634,7 @@ async def upload(
                 w = h = None
                 try:
                     if ext in {".stl", ".obj", ".3mf", ".ply", ".off", ".fbx"}:
-                        w, h = await thumbs.make_model_thumb(primary_path, thumb_path)
+                        w, h = await bounded_processing(thumbs.make_model_thumb(primary_path, thumb_path))
                 except Exception:
                     pass
                 if not thumb_path.exists():
@@ -564,24 +667,24 @@ async def upload(
         waveform_json = None
         try:
             if media_type == "image":
-                w, h = await asyncio.to_thread(thumbs.make_image_thumb, storage_path, thumb_path)
+                w, h = await bounded_processing(asyncio.to_thread(thumbs.make_image_thumb, storage_path, thumb_path))
             elif media_type == "video":
-                w, h, duration = await thumbs.make_video_thumb(storage_path, thumb_path)
+                w, h, duration = await bounded_processing(thumbs.make_video_thumb(storage_path, thumb_path))
             elif media_type == "pdf":
-                w, h = await thumbs.make_pdf_thumb(storage_path, thumb_path)
+                w, h = await bounded_processing(thumbs.make_pdf_thumb(storage_path, thumb_path))
             elif media_type == "audio":
                 # No thumbnail; store peaks (audio-level preview) + duration instead.
-                peaks, duration = await thumbs.make_audio_waveform(storage_path)
+                peaks, duration = await bounded_processing(thumbs.make_audio_waveform(storage_path))
                 if peaks:
                     waveform_json = json.dumps(peaks)
                 thumb_path = None
             elif media_type == "model":
                 if ext in {".stl", ".obj", ".3mf", ".ply", ".off", ".fbx"}:
-                    w, h = await thumbs.make_model_thumb(storage_path, thumb_path)
+                    w, h = await bounded_processing(thumbs.make_model_thumb(storage_path, thumb_path))
                 if not thumb_path.exists():
                     thumb_path = None
             elif media_type == "text":
-                w, h = await thumbs.make_text_thumb(storage_path, thumb_path)
+                w, h = await bounded_processing(thumbs.make_text_thumb(storage_path, thumb_path))
         except Exception:
             thumb_path.unlink(missing_ok=True)
             thumb_path = None
@@ -847,11 +950,13 @@ def _bundle_dir_for(item: dict) -> Path | None:
 
 
 @app.post("/waveform")
-async def waveform_analyze(file: UploadFile = File(...)):
+async def waveform_analyze(
+    file: UploadFile = File(...),
+    _user: dict = Depends(require_upload_user),
+):
     """Compute peaks + duration for an audio clip WITHOUT storing it — used by the recorder
-    to bake the waveform right after recording, for the preview. Public + size-capped."""
+    to bake the waveform right after recording, for the preview."""
     import tempfile
-    MAX = 30 * 1024 * 1024
     suffix = Path(file.filename or "").suffix.lower() or ".bin"
     tmp = tempfile.NamedTemporaryFile(prefix="wf_", suffix=suffix, delete=False)
     tmp_path = Path(tmp.name)
@@ -859,11 +964,11 @@ async def waveform_analyze(file: UploadFile = File(...)):
         size = 0
         while chunk := await file.read(1024 * 1024):
             size += len(chunk)
-            if size > MAX:
-                raise HTTPException(413, "clip too large to analyze")
+            if WAVEFORM_MAX_BYTES and size > WAVEFORM_MAX_BYTES:
+                raise HTTPException(413, "clip exceeds configured waveform limit")
             tmp.write(chunk)
         tmp.close()
-        peaks, duration = await thumbs.make_audio_waveform(tmp_path)
+        peaks, duration = await bounded_processing(thumbs.make_audio_waveform(tmp_path))
         return JSONResponse({"peaks": peaks, "duration": duration})
     finally:
         try:
@@ -902,7 +1007,8 @@ async def raw(media_id: str):
     # references inside the file (e.g. OBJ's `mtllib foo.mtl`) resolve to siblings.
     if _bundle_dir_for(item) is not None:
         return RedirectResponse(url=f"/raw/{media_id}/{p.name}", status_code=302)
-    return FileResponse(p, media_type=item["mime_type"])
+    media_type = "text/plain; charset=utf-8" if item["media_type"] == "text" else item["mime_type"]
+    return FileResponse(p, media_type=media_type)
 
 
 @app.get("/raw/{media_id}/{filename}")
@@ -923,7 +1029,12 @@ async def raw_bundle_file(media_id: str, filename: str):
     if not target.exists() or not target.is_file():
         raise HTTPException(404)
     mt, _ = mimetypes.guess_type(name)
-    return FileResponse(target, media_type=mt or "application/octet-stream")
+    active_types = {
+        "text/html", "image/svg+xml", "application/xml", "text/xml",
+        "application/javascript", "text/javascript",
+    }
+    media_type = "text/plain; charset=utf-8" if mt in active_types else (mt or "application/octet-stream")
+    return FileResponse(target, media_type=media_type)
 
 
 @app.get("/thumb/{media_id}")

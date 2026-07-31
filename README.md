@@ -48,12 +48,16 @@ Everything is environment-driven via `.env` (the one local, gitignored config fi
 | `SESSION_SECRET` | Cookie signing key — `openssl rand -base64 48` |
 | `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_ISSUER` | Your OIDC app credentials + issuer URL |
 | `PUBLIC_URL` | Public base URL (used for OIDC redirect + share links) |
-| `ALLOWED_ORIGINS` | Comma-separated origins allowed for CORS (e.g. your OpenChat URL) — the browser fetches `/raw`, `/thumb`, `/waveform` directly |
-| `SHARE_API_KEY` | Shared secret for service uploads — set to the **same** value as OpenChat's `SHARE_API_KEY` so OpenChat can upload on a user's behalf (leave blank to disable service auth) |
+| `ALLOWED_ORIGINS` | Comma-separated trusted application origins (e.g. your OpenChat URL) |
+| `SHARE_API_KEY` | Shared secret scoped to OpenChat upload and waveform requests; other owner operations always require an OpenShare session |
 | `STORAGE_ROOT` | In-container path for files/thumbnails (matches the compose mount) |
 | `STORAGE_PATH` | Host path bind-mounted for storage — point at a big disk or NAS |
 | `PORT` | Host port to expose |
-| `ARCHIVE_MAX_MB` | Largest archive OpenShare will expand for browsing |
+| `FORWARDED_ALLOW_IPS` | Reverse-proxy IPs/CIDRs trusted for forwarded headers (default `127.0.0.1`) |
+| `DATABASE_FILE` | SQLite file inside the container (default `/data/gallery.db`) |
+| `UPLOAD_MAX_FILES`, `UPLOAD_MAX_MB`, `UPLOAD_TOTAL_MAX_MB` | Optional operator upload limits; unset means unlimited |
+| `ARCHIVE_MAX_MB`, `ARCHIVE_EXPANDED_MAX_MB`, `ARCHIVE_MAX_ENTRIES` | Optional archive safety limits; unset means unlimited |
+| `WAVEFORM_MAX_MB`, `PROCESSING_MAX_CONCURRENCY`, `PROCESSING_TIMEOUT_SECONDS` | Optional media-processing limits; unset means unlimited |
 
 Your OIDC provider needs an application for OpenShare whose redirect URI is
 `‹PUBLIC_URL›/auth/callback`.
@@ -68,9 +72,9 @@ The pair is designed to run together:
 3. In OpenChat's `.env`, set `SHARE_BASE_URL` to OpenShare's `PUBLIC_URL` and `SHARE_API_KEY`
    to the **same** secret from step 2.
 
-OpenChat's API uploads to OpenShare on the user's behalf using that shared key (so it works even
-for users who've never opened OpenShare), and the browser renders the resulting `/raw`, `/thumb`,
-and `/waveform` links directly (hence the `ALLOWED_ORIGINS` CORS entry). Both apps share the same
+OpenChat's API uploads and requests waveform analysis on the user's behalf using that shared key
+(so it works even for users who've never opened OpenShare), while browsers render public share
+assets directly. Both apps share the same
 OIDC provider, so a logged-in user is authorized to both. OpenChat also runs fine **without**
 OpenShare — it simply hides file/image uploads.
 

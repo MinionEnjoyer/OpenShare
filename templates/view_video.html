@@ -10,7 +10,9 @@
 {% endblock %}
 {% block content %}
 <div class="viewer">
-  <video id="player" controls preload="metadata" poster="/thumb/{{ item.id }}" src="/raw/{{ item.id }}"></video>
+  <div id="video-frame" class="media-loading-frame">
+    <video id="player" controls preload="metadata" poster="/thumb/{{ item.id }}" src="/raw/{{ item.id }}" data-loading-media data-loading-label="Loading video" data-spinner-size="lg"></video>
+  </div>
   <div id="video-fallback" class="video-fallback" hidden>
     <p class="muted">Your browser can't play this video format directly.</p>
     <a class="btn primary big" href="/raw/{{ item.id }}" download="{{ item.original_name }}">Download to play</a>
@@ -22,7 +24,7 @@
     <a class="btn" href="/raw/{{ item.id }}" download="{{ item.original_name }}">Download</a>
     <button class="btn" onclick="navigator.clipboard.writeText(location.href)">Copy link</button>
     {% if user and user.sub == item.owner_sub %}
-    <form action="/delete/{{ item.id }}" method="post" onsubmit="return confirm('Delete this?')">
+    <form action="/delete/{{ item.id }}" method="post" data-loading="Deleting…" onsubmit="return confirm('Delete this?')">
       <button class="btn danger" type="submit">Delete</button>
     </form>
     {% endif %}
@@ -30,9 +32,10 @@
 </div>
 <script>
 const player = document.getElementById('player');
+const frame = document.getElementById('video-frame');
 const fallback = document.getElementById('video-fallback');
 function showFallback() {
-  player.hidden = true;
+  frame.hidden = true;
   fallback.hidden = false;
 }
 // Only show the fallback when a real load/playback attempt fails.

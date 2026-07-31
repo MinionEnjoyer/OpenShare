@@ -52,6 +52,86 @@ main > * + * { margin-top: 1.25rem; }
 .btn.big { padding: 0.75rem 1.5rem; font-size: 1.05rem; }
 .muted { color: var(--muted); }
 
+/* Reusable OpenShare loading asset. The orbit is pure CSS so it remains exactly
+   concentric at every size; the stationary OpenShare mark anchors its center. */
+@keyframes oc-spin { to { transform: rotate(1turn); } }
+@keyframes oc-soft-glow {
+  0%, 100% { box-shadow: calc(-1 * var(--oc-glow-offset)) 0 var(--oc-glow-radius) rgba(32,145,255,.10), var(--oc-glow-offset) 0 var(--oc-glow-radius) rgba(24,218,174,.09); }
+  50% { box-shadow: calc(-1 * var(--oc-glow-offset)) 0 var(--oc-glow-radius) rgba(32,145,255,.18), var(--oc-glow-offset) 0 var(--oc-glow-radius) rgba(24,218,174,.16); }
+}
+.oc-spinner {
+  --oc-size: 48px;
+  --oc-glow-offset: 2px;
+  --oc-glow-radius: 8px;
+  --oc-orbit: conic-gradient(
+    transparent 0deg 7deg,
+    #14e3ba 7deg,
+    #11cda8 78deg,
+    #07836f 173deg,
+    transparent 173deg 187deg,
+    #0756a8 187deg,
+    #117ee9 254deg,
+    #2fb7ff 343deg,
+    transparent 353deg 360deg
+  );
+  --oc-mask: radial-gradient(farthest-side, transparent 0 83%, #000 84% 97%, transparent 98% 100%);
+  position: relative;
+  display: inline-block;
+  width: var(--oc-size);
+  height: var(--oc-size);
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: url('/static/logo.png') center / 58% 58% no-repeat;
+  animation: oc-soft-glow 2.4s ease-in-out infinite;
+}
+.oc-spinner::before,
+.oc-spinner::after {
+  content: '';
+  position: absolute;
+  inset: 5%;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, transparent 0 84%, rgba(199,255,255,.82) 85%, transparent 88%),
+    var(--oc-orbit);
+  -webkit-mask: var(--oc-mask);
+  mask: var(--oc-mask);
+  transform-origin: 50% 50%;
+  animation: oc-spin 1.15s linear infinite;
+}
+.oc-spinner--xs { --oc-size: 18px; --oc-glow-offset: .5px; --oc-glow-radius: 4px; }
+.oc-spinner--sm { --oc-size: 28px; --oc-glow-offset: 1px; --oc-glow-radius: 6px; }
+.oc-spinner--md { --oc-size: 48px; --oc-glow-offset: 2px; --oc-glow-radius: 8px; }
+.oc-spinner--lg { --oc-size: 68px; --oc-glow-offset: 2px; --oc-glow-radius: 10px; }
+.oc-spinner[hidden] { display: none !important; }
+
+.page-busy {
+  position: fixed; top: 4.25rem; right: 1rem; z-index: 500;
+  display: flex; align-items: center; gap: .7rem;
+  padding: .65rem .85rem; border: 1px solid var(--line); border-radius: 9px;
+  background: rgba(22,24,29,.94); box-shadow: 0 8px 28px rgba(0,0,0,.38);
+  font-size: .9rem;
+}
+.loading-image-host, .media-loading-frame { position: relative; }
+.loading-image-host > .oc-spinner,
+.media-loading-frame > .oc-spinner {
+  position: absolute; inset: 50% auto auto 50%; z-index: 2;
+  transform: translate(-50%, -50%);
+}
+.loading-image-host > img[data-loading-image],
+.media-loading-frame > :is(img,video,object)[data-loading-media] { opacity: 0; transition: opacity .16s ease; }
+.loading-image-host.loaded > img[data-loading-image],
+.media-loading-frame.loaded > :is(img,video,object)[data-loading-media] { opacity: 1; }
+.media-loading-frame { display: grid; place-items: center; min-width: min(280px, 85vw); min-height: 180px; }
+.media-loading-frame > :is(img,video,object) { grid-area: 1 / 1; }
+.model-loading { flex-direction: column; gap: .85rem; }
+.upload-zone.busy { border-style: solid; border-color: rgba(79,156,249,.55); }
+.progress { display: inline-flex; align-items: center; gap: .65rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .oc-spinner { animation-duration: 4.8s; }
+  .oc-spinner::before, .oc-spinner::after { animation-duration: 2.4s; }
+}
+
 .login-card { max-width: 440px; margin: clamp(2rem, 10vh, 6rem) auto; text-align:center; padding: 2rem 1.5rem; border:1px solid var(--line); background:var(--card); border-radius: 10px; }
 .login-card h1 { margin: 0 0 0.5rem; }
 
@@ -85,7 +165,8 @@ main > * + * { margin-top: 1.25rem; }
 .viewer img, .viewer video { max-width: 100%; max-height: 80vh; display:block; border-radius: 6px; }
 .viewer .meta { display:flex; gap: 0.75rem; align-items:center; flex-wrap:wrap; justify-content: center; }
 .viewer .meta form { margin:0; display:inline; }
-.audio-player { display:flex; align-items:center; gap: 0.9rem; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 0.9rem 1.1rem; width: min(680px, 92vw); }
+.audio-player { position:relative; display:flex; align-items:center; gap: 0.9rem; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 0.9rem 1.1rem; width: min(680px, 92vw); }
+.audio-loading { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); z-index:2; }
 .audio-play { flex-shrink:0; width: 42px; height: 42px; border-radius: 50%; padding: 0; font-size: 15px; line-height: 1; }
 .audio-wave { flex: 1; min-width: 0; height: 72px; cursor: pointer; }
 .audio-time { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 13px; }
@@ -315,4 +396,3 @@ body.dragging-items .folder-tile { border-style: dashed; }
   .subheader { padding: 0.6rem 0.85rem 0; gap: 0.25rem; }
   .search-bar input[type=search] { padding: 0.5rem 0.9rem; font-size: 0.9rem; }
 }
-

@@ -39,7 +39,7 @@
     <div class="tile-wrap">
       <a class="tile" href="/{{ view_prefix }}/{{ it.id }}" title="{{ it.original_name }}">
         {% if it.thumb_path %}
-          <img src="/thumb/{{ it.id }}" alt="" loading="lazy">
+          <img src="/thumb/{{ it.id }}" alt="" loading="lazy" data-loading-image data-spinner-size="sm">
         {% elif it.media_type == 'model' %}
           <div class="thumb-missing model-thumb"><span class="model-cube">⬢</span><span class="model-ext">{{ ext }}</span></div>
         {% elif it.media_type == 'archive' %}

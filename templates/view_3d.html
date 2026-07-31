@@ -11,7 +11,10 @@
        data-src="/raw/{{ item.id }}"
        data-ext="{{ ext }}"
        {% if mtl_name %}data-mtl="{{ mtl_name }}"{% endif %}>
-    <div class="model-loading muted">Loading {{ ext|upper }}…</div>
+    <div class="model-loading muted" role="status" aria-live="polite">
+      <span class="oc-spinner oc-spinner--lg" aria-hidden="true"></span>
+      <span class="model-loading-text">Loading {{ ext|upper }}…</span>
+    </div>
   </div>
   <div id="model-fallback" class="video-fallback" hidden>
     <p class="muted">Couldn't render this 3D file in the browser.</p>
@@ -23,7 +26,7 @@
     <a class="btn" href="/raw/{{ item.id }}" download="{{ item.original_name }}">Download</a>
     <button class="btn" onclick="navigator.clipboard.writeText(location.href)">Copy link</button>
     {% if user and user.sub == item.owner_sub %}
-    <form action="/delete/{{ item.id }}" method="post" onsubmit="return confirm('Delete this?')">
+    <form action="/delete/{{ item.id }}" method="post" data-loading="Deleting…" onsubmit="return confirm('Delete this?')">
       <button class="btn danger" type="submit">Delete</button>
     </form>
     {% endif %}
@@ -45,6 +48,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 const stage = document.getElementById('model-stage');
 const fallback = document.getElementById('model-fallback');
 const loadingEl = stage.querySelector('.model-loading');
+const loadingText = loadingEl.querySelector('.model-loading-text');
 const src = stage.dataset.src;
 const ext = stage.dataset.ext;
 const mtlName = stage.dataset.mtl || null;
@@ -131,14 +135,14 @@ async function load3mf(progressEl) {
 }
 
 async function loadStep(progressEl) {
-  progressEl.textContent = 'Loading STEP… (initializing WASM)';
+  loadingText.textContent = 'Loading STEP… (initializing WASM)';
   const occtModule = (await import('https://cdn.jsdelivr.net/npm/occt-import-js@0.0.22/+esm')).default;
   const occt = await occtModule();
-  progressEl.textContent = 'Loading STEP… (fetching file)';
+  loadingText.textContent = 'Loading STEP… (fetching file)';
   const res = await fetch(src);
   if (!res.ok) throw new Error(`fetch failed: HTTP ${res.status}`);
   const buf = new Uint8Array(await res.arrayBuffer());
-  progressEl.textContent = 'Loading STEP… (parsing geometry)';
+  loadingText.textContent = 'Loading STEP… (parsing geometry)';
   const result = occt.ReadStepFile(buf, null);
   if (!result || !result.success) throw new Error('STEP parse failed');
   const group = new THREE.Group();
@@ -173,7 +177,7 @@ async function loadStep(progressEl) {
 
 function updateProgress(el, p) {
   if (p && p.lengthComputable) {
-    el.textContent = `Loading ${ext.toUpperCase()}… ${Math.round((p.loaded / p.total) * 100)}%`;
+    loadingText.textContent = `Loading ${ext.toUpperCase()}… ${Math.round((p.loaded / p.total) * 100)}%`;
   }
 }
 

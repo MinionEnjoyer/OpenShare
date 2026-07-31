@@ -14,14 +14,14 @@
   <button class="btn" type="button" onclick="document.getElementById('share-dialog').showModal()">Copy share link</button>
   <details class="inline-form" name="gallery-menu">
     <summary class="btn">Rename</summary>
-    <form action="/folders/{{ folder.id }}/rename" method="post">
+    <form action="/folders/{{ folder.id }}/rename" method="post" data-loading="Saving…">
       <input type="text" name="name" value="{{ folder.name }}" required>
       <button class="btn primary" type="submit">Save</button>
     </form>
   </details>
   <details class="inline-form" name="gallery-menu">
     <summary class="btn">Move folder</summary>
-    <form action="/folders/{{ folder.id }}/move" method="post">
+    <form action="/folders/{{ folder.id }}/move" method="post" data-loading="Moving folder…">
       <select name="parent_id">
         <option value="">(root)</option>
         {% for f in all_folders if f.id != folder.id %}
@@ -31,7 +31,7 @@
       <button class="btn primary" type="submit">Move</button>
     </form>
   </details>
-  <form action="/folders/{{ folder.id }}/delete" method="post" onsubmit="return confirm('Delete this folder? Its contents will move up to the parent.')">
+  <form action="/folders/{{ folder.id }}/delete" method="post" data-loading="Deleting folder…" onsubmit="return confirm('Delete this folder? Its contents will move up to the parent.')">
     <button class="btn danger" type="submit">Delete folder</button>
   </form>
 </section>
@@ -50,7 +50,7 @@
 <section class="upload-zone" id="dropzone">
   <details class="inline-form new-folder-spot" name="gallery-menu">
     <summary class="btn ghost">+ New folder</summary>
-    <form action="/folders" method="post" class="new-folder-form">
+    <form action="/folders" method="post" class="new-folder-form" data-loading="Creating folder…">
       <input type="hidden" name="parent_id" value="{{ folder.id if folder else '' }}">
       <input type="text" name="name" placeholder="Folder name" required autofocus>
       <button class="btn primary" type="submit">Create</button>
@@ -69,7 +69,10 @@
     </div>
     <div class="upload-target muted">{% if folder %}→ {{ folder.name }}{% else %}→ root{% endif %}</div>
   </div>
-  <div id="progress" class="progress muted" hidden></div>
+  <div id="progress" class="progress muted" role="status" aria-live="polite" hidden>
+    <span id="upload-spinner" class="oc-spinner oc-spinner--sm" aria-hidden="true"></span>
+    <span id="progress-text"></span>
+  </div>
 </section>
 
 <div id="selection-bar" class="selection-bar" hidden>
@@ -116,7 +119,7 @@
   <div class="tile-wrap" data-id="{{ it.id }}" data-href="/{{ view_prefix }}/{{ it.id }}">
     <div class="tile" draggable="true">
       {% if it.thumb_path %}
-        <img src="/thumb/{{ it.id }}" alt="" loading="lazy" draggable="false">
+        <img src="/thumb/{{ it.id }}" alt="" loading="lazy" draggable="false" data-loading-image data-spinner-size="sm">
       {% elif it.media_type == 'model' %}
         <div class="thumb-missing model-thumb"><span class="model-cube">⬢</span><span class="model-ext">{{ ext }}</span></div>
       {% elif it.media_type == 'archive' %}
@@ -147,6 +150,8 @@
 const dz = document.getElementById('dropzone');
 const input = document.getElementById('fileinput');
 const progress = document.getElementById('progress');
+const progressText = document.getElementById('progress-text');
+const uploadSpinner = document.getElementById('upload-spinner');
 const grid = document.getElementById('media-grid');
 const selBar = document.getElementById('selection-bar');
 const selCountEl = document.getElementById('sel-count');
@@ -168,14 +173,26 @@ dz.addEventListener('drop', ev => {
 });
 input.addEventListener('change', () => upload(input.files));
 
+let uploadBusy = false;
+function finishUpload() {
+  uploadBusy = false;
+  dz.classList.remove('busy');
+  input.disabled = false;
+  input.value = '';
+  uploadSpinner.hidden = true;
+}
 async function upload(files) {
-  if (!files || !files.length) return;
+  if (!files || !files.length || uploadBusy) return;
+  uploadBusy = true;
+  dz.classList.add('busy');
+  input.disabled = true;
   const fd = new FormData();
   for (const f of files) fd.append('files', f);
   if (currentFolder) fd.append('folder_id', currentFolder);
   progress.hidden = false;
   progress.classList.remove('error');
-  progress.textContent = `Uploading ${files.length} file(s)…`;
+  uploadSpinner.hidden = false;
+  progressText.textContent = `Uploading and processing ${files.length} file(s)…`;
   try {
     const r = await fetch('/upload', { method:'POST', body:fd });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -185,15 +202,17 @@ async function upload(files) {
     if (rejected.length) {
       progress.classList.add('error');
       const names = rejected.map(r => `${r.name} (${r.reason})`).join(', ');
-      progress.textContent = `Uploaded ${savedN}. Skipped ${rejected.length}: ${names}`;
+      progressText.textContent = `Uploaded ${savedN}. Skipped ${rejected.length}: ${names}`;
       if (savedN > 0) setTimeout(() => location.reload(), 2500);
+      else finishUpload();
       return;
     }
-    progress.textContent = `Uploaded ${savedN} file(s). Refreshing…`;
+    progressText.textContent = `Uploaded ${savedN} file(s). Refreshing…`;
     setTimeout(() => location.reload(), 400);
   } catch (e) {
     progress.classList.add('error');
-    progress.textContent = `Upload failed: ${e}`;
+    progressText.textContent = `Upload failed: ${e}`;
+    finishUpload();
   }
 }
 
@@ -241,6 +260,7 @@ grid.addEventListener('click', ev => {
   if (ev.metaKey || ev.ctrlKey) { ev.preventDefault(); toggle(id); return; }
   if (ev.shiftKey) { ev.preventDefault(); rangeTo(id); return; }
   if (selected.size > 0) { ev.preventDefault(); toggle(id); return; }
+  OpenShareLoading.pageBusy('Opening item…');
   location.href = wrap.dataset.href;
 });
 
@@ -253,22 +273,38 @@ document.addEventListener('keydown', e => {
 selDelete.addEventListener('click', async () => {
   if (!selected.size) return;
   if (!confirm(`Delete ${selected.size} item(s)? This cannot be undone.`)) return;
-  const r = await fetch('/bulk/delete', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ ids: [...selected] }),
-  });
-  if (r.ok) location.reload(); else alert(`Delete failed: HTTP ${r.status}`);
+  OpenShareLoading.pageBusy(`Deleting ${selected.size} item(s)…`);
+  selDelete.disabled = true;
+  try {
+    const r = await fetch('/bulk/delete', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ ids: [...selected] }),
+    });
+    if (r.ok) location.reload(); else throw new Error(`HTTP ${r.status}`);
+  } catch (e) {
+    OpenShareLoading.clearPageBusy();
+    selDelete.disabled = false;
+    alert(`Delete failed: ${e}`);
+  }
 });
 
 // Bulk move via "Move to…" menu
 document.querySelectorAll('.sel-move-menu button[data-folder-id]').forEach(btn => {
   btn.addEventListener('click', async () => {
     if (!selected.size) return;
-    const r = await fetch('/bulk/move', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ ids: [...selected], folder_id: btn.dataset.folderId || null }),
-    });
-    if (r.ok) location.reload(); else alert(`Move failed: HTTP ${r.status}`);
+    OpenShareLoading.pageBusy(`Moving ${selected.size} item(s)…`);
+    btn.disabled = true;
+    try {
+      const r = await fetch('/bulk/move', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ ids: [...selected], folder_id: btn.dataset.folderId || null }),
+      });
+      if (r.ok) location.reload(); else throw new Error(`HTTP ${r.status}`);
+    } catch (e) {
+      OpenShareLoading.clearPageBusy();
+      btn.disabled = false;
+      alert(`Move failed: ${e}`);
+    }
   });
 });
 
@@ -304,11 +340,17 @@ for (const target of document.querySelectorAll('.droptarget')) {
     if (!raw) return;
     ev.preventDefault();
     const ids = JSON.parse(raw);
-    const r = await fetch('/bulk/move', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ ids, folder_id: target.dataset.folderId || null }),
-    });
-    if (r.ok) location.reload(); else alert(`Move failed: HTTP ${r.status}`);
+    OpenShareLoading.pageBusy(`Moving ${ids.length} item(s)…`);
+    try {
+      const r = await fetch('/bulk/move', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ ids, folder_id: target.dataset.folderId || null }),
+      });
+      if (r.ok) location.reload(); else throw new Error(`HTTP ${r.status}`);
+    } catch (e) {
+      OpenShareLoading.clearPageBusy();
+      alert(`Move failed: ${e}`);
+    }
   });
 }
 </script>

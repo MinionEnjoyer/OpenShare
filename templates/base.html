@@ -7,6 +7,7 @@
 {% block meta %}{% endblock %}
 <link rel="icon" type="image/png" href="/static/favicon.png">
 <link rel="stylesheet" href="/static/style.css">
+<script defer src="/static/loading.js"></script>
 </head>
 <body>
 <nav>
@@ -19,7 +20,7 @@
 </nav>
 {% if user %}
 <section class="subheader">
-  <form action="/search" method="get" class="search-bar">
+  <form action="/search" method="get" class="search-bar" data-loading="Searching…">
     <input type="search" name="q" placeholder="Search your library…" value="{{ q|default('', true) }}" autocomplete="off">
   </form>
   {% if user_storage %}
@@ -28,5 +29,9 @@
 </section>
 {% endif %}
 <main>{% block content %}{% endblock %}</main>
+<div id="page-busy" class="page-busy" role="status" aria-live="polite" hidden>
+  <span class="oc-spinner oc-spinner--sm" aria-hidden="true"></span>
+  <span id="page-busy-text">Working…</span>
+</div>
 </body>
 </html>

@@ -10,6 +10,7 @@
 <div class="viewer">
   <div class="audio-player">
     <button id="playBtn" class="btn primary audio-play" type="button" aria-label="Play">▶</button>
+    <span id="audio-loading" class="oc-spinner oc-spinner--sm audio-loading" role="status" aria-label="Loading waveform"></span>
     <canvas id="wave" class="audio-wave"></canvas>
     <div class="audio-time"><span id="cur">0:00</span> / <span id="dur">0:00</span></div>
   </div>
@@ -20,7 +21,7 @@
     <a class="btn" href="/raw/{{ item.id }}" download="{{ item.original_name }}">Download</a>
     <button class="btn" onclick="navigator.clipboard.writeText(location.href)">Copy link</button>
     {% if user and user.sub == item.owner_sub %}
-    <form action="/delete/{{ item.id }}" method="post" onsubmit="return confirm('Delete this?')">
+    <form action="/delete/{{ item.id }}" method="post" data-loading="Deleting…" onsubmit="return confirm('Delete this?')">
       <button class="btn danger" type="submit">Delete</button>
     </form>
     {% endif %}
@@ -33,6 +34,7 @@
   const canvas = document.getElementById('wave');
   const curEl = document.getElementById('cur');
   const durEl = document.getElementById('dur');
+  const loading = document.getElementById('audio-loading');
   const ctx = canvas.getContext('2d');
   let peaks = [];
   const css = getComputedStyle(document.documentElement);
@@ -63,7 +65,7 @@
     if (d && Array.isArray(d.peaks) && d.peaks.length) peaks = d.peaks;
     if (d && typeof d.duration === 'number' && d.duration > 0) durEl.textContent = fmt(d.duration);
     draw();
-  }).catch(() => {});
+  }).catch(() => {}).finally(() => loading.remove());
 
   btn.addEventListener('click', () => { if (audio.paused) audio.play(); else audio.pause(); });
   audio.addEventListener('play', () => { btn.textContent = '⏸'; });

@@ -74,7 +74,8 @@ The pair is designed to run together:
 
 OpenChat's API uploads and requests waveform analysis on the user's behalf using that shared key
 (so it works even for users who've never opened OpenShare), while browsers render public share
-assets directly. Both apps share the same
+assets directly. OpenShare also accepts the same key on the legacy `/api/assets` upload route so
+already-released OpenChat servers can migrate without enabling a development login. Both apps share the same
 OIDC provider, so a logged-in user is authorized to both. OpenChat also runs fine **without**
 OpenShare — it simply hides file/image uploads.
 

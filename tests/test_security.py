@@ -9,7 +9,7 @@ from starlette.requests import Request
 
 import db
 import main
-from conftest import OpenShareHarness
+from conftest import OpenShareHarness, PNG_1X1
 
 
 def request_with_headers(*headers: tuple[str, str], session=None) -> Request:
@@ -44,6 +44,32 @@ def test_invalid_service_key_cannot_fall_back_to_a_browser_session():
     with pytest.raises(HTTPException) as exc:
         main.require_upload_user(request)
     assert exc.value.status_code == 401
+
+
+@pytest.mark.integration
+def test_legacy_openchat_asset_upload_uses_scoped_service_key(harness: OpenShareHarness):
+    response = harness.client.post(
+        "/api/assets",
+        headers={"Authorization": "Bearer test-share-key"},
+        data={"source": "chat"},
+        files={"file": ("sticker.png", PNG_1X1, "image/png")},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["filename"] == "sticker.png"
+    assert payload["mimeType"] == "image/png"
+    assert payload["mediaType"] == "image"
+    assert harness.media(payload["id"])["owner_sub"] == "openchat-service"
+
+
+@pytest.mark.integration
+def test_legacy_openchat_asset_upload_rejects_wrong_service_key(harness: OpenShareHarness):
+    response = harness.client.post(
+        "/api/assets",
+        headers={"Authorization": "Bearer wrong"},
+        files={"file": ("sticker.png", b"not-a-real-image", "image/png")},
+    )
+    assert response.status_code == 401
 
 
 @pytest.mark.integration

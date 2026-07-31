@@ -231,7 +231,7 @@ trusted_origins = {public_origin, *ALLOWED_ORIGINS, *NATIVE_ORIGINS}
 async def security_boundary(request: Request, call_next):
     if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
         authorization = request.headers.get("authorization", "")
-        service_upload = request.url.path in {"/upload", "/waveform"} and authorization.startswith("Bearer ")
+        service_upload = request.url.path in {"/upload", "/waveform", "/api/assets"} and authorization.startswith("Bearer ")
         if not service_upload:
             origin = request.headers.get("origin", "")
             if origin not in trusted_origins:
@@ -295,6 +295,17 @@ def require_upload_user(request: Request) -> dict:
                 return {"sub": sub, "username": request.headers.get("x-share-user-name", "").strip() or sub}
         raise HTTPException(status_code=401, detail="invalid service credentials")
     return require_user(request)
+
+
+def require_legacy_service_user(request: Request) -> dict:
+    """Authenticate OpenChat's former /api/assets broker without restoring dev-login."""
+    header = request.headers.get("authorization", "")
+    supplied = header[7:] if header.startswith("Bearer ") else ""
+    if not SHARE_API_KEY or not supplied or not secrets.compare_digest(supplied, SHARE_API_KEY):
+        raise HTTPException(status_code=401, detail="invalid service credentials")
+    sub = request.headers.get("x-share-user-sub", "").strip() or "openchat-service"
+    username = request.headers.get("x-share-user-name", "").strip() or sub
+    return {"sub": sub, "username": username}
 
 
 async def _owner_folder(folder_id: str, owner_sub: str) -> dict:
@@ -711,6 +722,37 @@ async def upload(
         saved.append({"id": mid, "media_type": media_type})
 
     return JSONResponse({"saved": saved, "rejected": rejected})
+
+
+@app.post("/api/assets")
+async def legacy_service_upload(
+    request: Request,
+    file: list[UploadFile] = File(...),
+    source: str = Form("chat"),
+    user: dict = Depends(require_legacy_service_user),
+):
+    """Compatibility lane for released OpenChat APIs that predate the scoped /upload path."""
+    if len(file) != 1:
+        raise HTTPException(400, detail="legacy service uploads accept exactly one file")
+    response = await upload(request, files=file, folder_id="", source=source, user=user)
+    payload = json.loads(response.body)
+    if not payload.get("saved"):
+        reason = (payload.get("rejected") or [{}])[0].get("reason", "upload rejected")
+        raise HTTPException(422, detail=reason)
+    item = await db.get_media(payload["saved"][0]["id"])
+    if not item:
+        raise HTTPException(500, detail="uploaded asset metadata is unavailable")
+    return {
+        "id": item["id"],
+        "filename": item["original_name"],
+        "mimeType": item["mime_type"],
+        "size": item["size_bytes"],
+        "mediaType": item["media_type"],
+        "width": item["width"],
+        "height": item["height"],
+        "durationMs": round(item["duration_s"] * 1000) if item["duration_s"] is not None else None,
+        "sha256": item.get("sha256") or "",
+    }
 
 
 # ---------- Owner: delete + move media ----------

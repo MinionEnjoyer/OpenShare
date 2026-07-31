@@ -14,8 +14,8 @@ from pathlib import Path
 # Make the app modules importable regardless of where this is invoked from.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import thumbs  # noqa: E402
-from db import DB_PATH  # noqa: E402
+import thumbs
+from db import DB_PATH
 
 
 async def main() -> None:

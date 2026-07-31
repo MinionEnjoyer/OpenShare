@@ -2,7 +2,7 @@
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F"]
+select = ["E4", "E7", "E9", "F", "PERF", "RUF", "SIM", "UP"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

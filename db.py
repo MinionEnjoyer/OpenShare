@@ -392,12 +392,11 @@ async def folder_list_all_for_owner(owner_sub: str):
 
 
 async def owner_storage_bytes(owner_sub: str) -> int:
-    async with connect_db() as db:
-        async with db.execute(
-            "SELECT COALESCE(SUM(size_bytes), 0) FROM media WHERE owner_sub=?", (owner_sub,)
-        ) as cur:
-            row = await cur.fetchone()
-            return int(row[0]) if row else 0
+    async with connect_db() as db, db.execute(
+        "SELECT COALESCE(SUM(size_bytes), 0) FROM media WHERE owner_sub=?", (owner_sub,)
+    ) as cur:
+        row = await cur.fetchone()
+        return int(row[0]) if row else 0
 
 
 async def list_media_missing_thumbs(media_type: str | None = None):

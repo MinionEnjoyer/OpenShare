@@ -267,7 +267,7 @@ async def _backfill_model_thumbs():
             if ext not in {".stl", ".obj", ".3mf", ".ply", ".off", ".fbx"}:
                 continue
             thumb_path = THUMBS_DIR / f"{item['id']}.jpg"
-            w, h = await bounded_processing(thumbs.make_model_thumb(src, thumb_path))
+            await bounded_processing(thumbs.make_model_thumb(src, thumb_path))
             if thumb_path.exists():
                 await db.update_thumb_path(item["id"], str(thumb_path))
         except Exception:
@@ -306,16 +306,19 @@ async def _owner_folder(folder_id: str, owner_sub: str) -> dict:
 
 async def _render_owner_view(request, user, folder):
     folder_id = folder["id"] if folder else None
-    items = await db.list_media_in_folder(user["sub"], folder_id)
-    subfolders = await db.folder_list_children(user["sub"], folder_id)
-    breadcrumb = await db.folder_breadcrumb(folder_id)
-    all_folders = await db.folder_list_all_for_owner(user["sub"])
+    items, subfolders, breadcrumb, all_folders, storage_bytes = await asyncio.gather(
+        db.list_media_in_folder(user["sub"], folder_id),
+        db.folder_list_children(user["sub"], folder_id),
+        db.folder_breadcrumb(folder_id),
+        db.folder_list_all_for_owner(user["sub"]),
+        db.owner_storage_bytes(user["sub"]),
+    )
     return templates.TemplateResponse(
         request=request,
         name="gallery.html",
         context={
             "user": user,
-            "user_storage": await _storage_for(user),
+            "user_storage": humanize_bytes(storage_bytes),
             "folder": folder,
             "breadcrumb": breadcrumb,
             "subfolders": subfolders,
@@ -864,7 +867,7 @@ async def view_text(request: Request, media_id: str):
         raise HTTPException(404)
     try:
         size = p.stat().st_size
-        with open(p, "r", encoding="utf-8", errors="replace") as fp:
+        with p.open(encoding="utf-8", errors="replace") as fp:
             body = fp.read(TEXT_VIEW_LIMIT_BYTES)
         truncated = size > TEXT_VIEW_LIMIT_BYTES
     except Exception:
@@ -955,24 +958,21 @@ async def waveform_analyze(
     to bake the waveform right after recording, for the preview."""
     import tempfile
     suffix = Path(file.filename or "").suffix.lower() or ".bin"
-    tmp = tempfile.NamedTemporaryFile(prefix="wf_", suffix=suffix, delete=False)
-    tmp_path = Path(tmp.name)
+    tmp_path: Path | None = None
     try:
-        size = 0
-        while chunk := await file.read(1024 * 1024):
-            size += len(chunk)
-            if WAVEFORM_MAX_BYTES and size > WAVEFORM_MAX_BYTES:
-                raise HTTPException(413, "clip exceeds configured waveform limit")
-            tmp.write(chunk)
-        tmp.close()
+        with tempfile.NamedTemporaryFile(prefix="wf_", suffix=suffix, delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+            size = 0
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if WAVEFORM_MAX_BYTES and size > WAVEFORM_MAX_BYTES:
+                    raise HTTPException(413, "clip exceeds configured waveform limit")
+                tmp.write(chunk)
         peaks, duration = await bounded_processing(thumbs.make_audio_waveform(tmp_path))
         return JSONResponse({"peaks": peaks, "duration": duration})
     finally:
-        try:
-            tmp.close()
-        except Exception:
-            pass
-        tmp_path.unlink(missing_ok=True)
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
 
 
 @app.get("/waveform/{media_id}")

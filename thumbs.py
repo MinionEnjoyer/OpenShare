@@ -1,6 +1,7 @@
 """Thumbnail generation. Images via Pillow; videos via ffmpeg; PDFs via pdftoppm; 3D via pyrender (OpenGL/EGL)."""
 import asyncio
 import os
+from contextlib import suppress
 from pathlib import Path
 from PIL import Image, ImageOps
 
@@ -14,10 +15,8 @@ WAVEFORM_BARS = 80  # number of peak buckets stored for the audio-level preview
 def make_image_thumb(src: Path, dst: Path) -> tuple[int | None, int | None]:
     """Returns (width, height) of the original."""
     with Image.open(src) as im:
-        try:
+        with suppress(Exception):
             im = ImageOps.exif_transpose(im)
-        except Exception:
-            pass
         orig_w, orig_h = im.size
         im.thumbnail((THUMB_MAX, THUMB_MAX), Image.LANCZOS)
         if im.mode in ("RGBA", "LA", "P"):
@@ -125,7 +124,7 @@ async def make_audio_waveform(src: Path) -> tuple[list[int] | None, float | None
         m = vals.max()
         if m <= 0:
             return [0] * WAVEFORM_BARS
-        return [int(round(v / m * 100)) for v in vals]
+        return [round(v / m * 100) for v in vals]
 
     peaks = await asyncio.to_thread(_peaks, raw)
     return peaks, duration
@@ -313,7 +312,7 @@ def _render_text_thumb_sync(src: Path, dst: Path) -> tuple[int | None, int | Non
     max_lines = 22
     max_line_chars = 72
     try:
-        with open(src, "r", encoding="utf-8", errors="replace") as fp:
+        with src.open(encoding="utf-8", errors="replace") as fp:
             lines = []
             for _ in range(max_lines):
                 line = fp.readline()

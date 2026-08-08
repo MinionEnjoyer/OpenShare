@@ -20,8 +20,8 @@
   <h2 class="section-h">Folders</h2>
   <div class="folder-grid">
     {% for f in folders %}
-    <a class="folder-tile" href="/folder/{{ f.id }}">
-      <div class="folder-icon">📁</div>
+    <a class="folder-tile" style="--folder-color: {{ f.color }}" href="/folder/{{ f.id }}">
+      <div class="folder-icon">{{ f.icon }}</div>
       <span class="folder-name">{{ f.name }}</span>
     </a>
     {% endfor %}

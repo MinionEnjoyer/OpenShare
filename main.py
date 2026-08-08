@@ -394,21 +394,38 @@ async def auth_logout(request: Request):
 
 # ---------- Folders ----------
 
+FOLDER_COLORS = (
+    "#4f9cf9", "#18c9a7", "#8b7cf6", "#ef6f91",
+    "#f6a94a", "#e5cb5c", "#6bc86d", "#aab2c4",
+)
+FOLDER_ICONS = ("📁", "📷", "🎨", "🎵", "🎬", "📚", "💼", "🧪", "⭐", "🗃️")
+
+
+def validate_folder_appearance(color: str, icon: str) -> tuple[str, str]:
+    if color not in FOLDER_COLORS:
+        raise HTTPException(400, detail="invalid folder color")
+    if icon not in FOLDER_ICONS:
+        raise HTTPException(400, detail="invalid folder icon")
+    return color, icon
+
 @app.post("/folders")
 async def create_folder(
     request: Request,
     name: str = Form(...),
     parent_id: str = Form(""),
+    color: str = Form("#4f9cf9"),
+    icon: str = Form("📁"),
     user: dict = Depends(require_user),
 ):
     name = name.strip()
     if not name:
         raise HTTPException(400, detail="name required")
+    color, icon = validate_folder_appearance(color, icon)
     parent = parent_id or None
     if parent is not None:
         await _owner_folder(parent, user["sub"])
     fid = new_id()
-    ok = await db.folder_create(fid, user["sub"], name, parent)
+    ok = await db.folder_create(fid, user["sub"], name, parent, color, icon)
     if not ok:
         raise HTTPException(400, detail="could not create folder")
     target = f"/folder/{parent}" if parent else "/"

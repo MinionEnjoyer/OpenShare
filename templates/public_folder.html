@@ -17,8 +17,8 @@
 {% if subfolders %}
 <section class="folder-grid">
   {% for sf in subfolders %}
-  <a class="folder-tile" href="/f/{{ sf.id }}">
-    <div class="folder-icon">📁</div>
+  <a class="folder-tile" style="--folder-color: {{ sf.color }}" href="/f/{{ sf.id }}">
+    <div class="folder-icon">{{ sf.icon }}</div>
     <span class="folder-name">{{ sf.name }}</span>
   </a>
   {% endfor %}

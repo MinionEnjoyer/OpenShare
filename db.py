@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS folders (
     owner_sub   TEXT NOT NULL,
     parent_id   TEXT REFERENCES folders(id) ON DELETE SET NULL,
     name        TEXT NOT NULL,
+    color       TEXT NOT NULL DEFAULT '#4f9cf9',
+    icon        TEXT NOT NULL DEFAULT '📁',
     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_folders_owner_parent ON folders (owner_sub, parent_id);
@@ -50,6 +52,12 @@ async def init():
     async with connect_db() as db:
         await db.execute("PRAGMA journal_mode=WAL")
         await db.executescript(SCHEMA)
+        async with db.execute("PRAGMA table_info(folders)") as cur:
+            folder_cols = {r[1] for r in await cur.fetchall()}
+        if "color" not in folder_cols:
+            await db.execute("ALTER TABLE folders ADD COLUMN color TEXT NOT NULL DEFAULT '#4f9cf9'")
+        if "icon" not in folder_cols:
+            await db.execute("ALTER TABLE folders ADD COLUMN icon TEXT NOT NULL DEFAULT '📁'")
         async with db.execute("PRAGMA table_info(media)") as cur:
             cols = {r[1] for r in await cur.fetchall()}
         if "folder_id" not in cols:
@@ -249,7 +257,14 @@ async def bulk_delete_media(ids: list[str], owner_sub: str) -> list[dict]:
 
 # ---------- folders ----------
 
-async def folder_create(folder_id: str, owner_sub: str, name: str, parent_id: str | None) -> bool:
+async def folder_create(
+    folder_id: str,
+    owner_sub: str,
+    name: str,
+    parent_id: str | None,
+    color: str = "#4f9cf9",
+    icon: str = "📁",
+) -> bool:
     async with connect_db() as db:
         if parent_id is not None:
             async with db.execute(
@@ -258,8 +273,8 @@ async def folder_create(folder_id: str, owner_sub: str, name: str, parent_id: st
                 if not await cur.fetchone():
                     return False
         await db.execute(
-            "INSERT INTO folders (id, owner_sub, parent_id, name) VALUES (?, ?, ?, ?)",
-            (folder_id, owner_sub, parent_id, name.strip()[:120]),
+            "INSERT INTO folders (id, owner_sub, parent_id, name, color, icon) VALUES (?, ?, ?, ?, ?, ?)",
+            (folder_id, owner_sub, parent_id, name.strip()[:120], color, icon),
         )
         await db.commit()
         return True

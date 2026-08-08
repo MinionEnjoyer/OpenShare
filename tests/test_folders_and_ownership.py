@@ -15,11 +15,13 @@ def create_folder(
     name: str,
     parent_id: str = "",
     owner: dict[str, str] = OWNER,
+    color: str = "#4f9cf9",
+    icon: str = "📁",
 ) -> str:
     response = harness.client.post(
         "/folders",
         headers=harness.owner_headers(owner),
-        data={"name": name, "parent_id": parent_id},
+        data={"name": name, "parent_id": parent_id, "color": color, "icon": icon},
         follow_redirects=False,
     )
     assert response.status_code == 303
@@ -61,6 +63,35 @@ def test_create_folder_failure_returns_a_useful_error(monkeypatch, harness: Open
 
     assert response.status_code == 400
     assert response.json() == {"detail": "could not create folder"}
+
+
+def test_folder_appearance_is_validated_and_persisted(harness: OpenShareHarness):
+    folder_id = create_folder(harness, "Photography", color="#18c9a7", icon="📷")
+    folder = run(db.folder_get(folder_id))
+
+    assert folder["color"] == "#18c9a7"
+    assert folder["icon"] == "📷"
+
+    invalid = harness.client.post(
+        "/folders",
+        headers=harness.owner_headers(),
+        data={"name": "Bad", "parent_id": "", "color": "url(javascript:bad)", "icon": "<script>"},
+    )
+    assert invalid.status_code == 400
+    assert invalid.json() == {"detail": "invalid folder color"}
+
+
+def test_folder_page_renders_creation_surface_and_active_orbit(harness: OpenShareHarness):
+    folder_id = create_folder(harness, "Design", color="#8b7cf6", icon="🎨")
+    response = harness.client.get(f"/folder/{folder_id}", headers=harness.owner_headers())
+
+    assert response.status_code == 200
+    assert 'class="folder-create-panel"' in response.text
+    assert 'name="color"' in response.text
+    assert 'name="icon"' in response.text
+    assert 'class="active-folder"' in response.text
+    assert 'style="--folder-color: #8b7cf6"' in response.text
+    assert "🎨" in response.text
 
 
 def test_folder_access_is_owner_scoped(harness: OpenShareHarness):

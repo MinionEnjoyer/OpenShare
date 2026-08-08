@@ -1,4 +1,5 @@
 import asyncio
+import sqlite3
 
 import pytest
 
@@ -38,12 +39,38 @@ def test_schema_initialization_is_idempotent_and_complete(harness: OpenShareHarn
                 row[1]
                 for row in await (await connection.execute("PRAGMA table_info(media)")).fetchall()
             }
+            folder_columns = {
+                row[1]
+                for row in await (await connection.execute("PRAGMA table_info(folders)")).fetchall()
+            }
             journal_mode = (await (await connection.execute("PRAGMA journal_mode")).fetchone())[0]
-            return columns, journal_mode
+            return columns, folder_columns, journal_mode
 
-    columns, journal_mode = run(inspect())
+    columns, folder_columns, journal_mode = run(inspect())
     assert {"folder_id", "sha256", "waveform"} <= columns
+    assert {"color", "icon"} <= folder_columns
     assert journal_mode == "wal"
+
+
+def test_existing_folder_rows_receive_safe_appearance_defaults(monkeypatch, tmp_path):
+    legacy_database = tmp_path / "legacy" / "gallery.db"
+    legacy_database.parent.mkdir(parents=True)
+    with sqlite3.connect(legacy_database) as connection:
+        connection.execute(
+            "CREATE TABLE folders (id TEXT PRIMARY KEY, owner_sub TEXT NOT NULL, "
+            "parent_id TEXT, name TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+        )
+        connection.execute(
+            "INSERT INTO folders (id, owner_sub, parent_id, name) VALUES ('legacy', ?, NULL, 'Legacy')",
+            (OWNER["sub"],),
+        )
+    monkeypatch.setattr(db, "DB_PATH", legacy_database)
+
+    run(db.init())
+
+    folder = run(db.folder_get("legacy"))
+    assert folder["color"] == "#4f9cf9"
+    assert folder["icon"] == "📁"
 
 
 def test_concurrent_writes_complete_without_database_locked(harness: OpenShareHarness):

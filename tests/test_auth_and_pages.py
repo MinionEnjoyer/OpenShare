@@ -53,7 +53,10 @@ def test_logged_in_home_renders_gallery(monkeypatch, harness: OpenShareHarness):
 
     assert response.status_code == 200
     assert "Drop files here" in response.text
+    assert 'class="folder-create-panel"' in response.text
     assert 'data-loading="Creating folder…" data-async-form' in response.text
+    assert 'name="color"' in response.text
+    assert 'name="icon"' in response.text
     assert "OpenShareLoading.navigateWithBusy" in response.text
     assert f"OpenShare v{main.APP_VERSION}" in response.text
     assert "Sign in" not in response.text
@@ -65,6 +68,15 @@ def test_health_reports_the_canonical_version(harness: OpenShareHarness):
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "version": main.APP_VERSION}
     assert (Path(__file__).resolve().parents[1] / "VERSION").read_text().strip() == main.APP_VERSION
+
+
+def test_active_folder_orbit_is_concentric_and_respects_reduced_motion():
+    stylesheet = (Path(__file__).resolve().parents[1] / "static" / "style.css").read_text()
+
+    assert ".active-folder-orbit::before" in stylesheet
+    assert "background:conic-gradient(" in stylesheet
+    assert "@keyframes folder-orbit-spin { to { transform: rotate(1turn); } }" in stylesheet
+    assert ".active-folder-orbit::before { animation: none; }" in stylesheet
 
 
 @pytest.mark.integration

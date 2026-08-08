@@ -10,6 +10,13 @@
 </nav>
 
 {% if folder %}
+<section class="active-folder" style="--folder-color: {{ folder.color }}" aria-label="Current folder {{ folder.name }}">
+  <span class="active-folder-orbit" aria-hidden="true"><span>{{ folder.icon }}</span></span>
+  <div>
+    <span class="eyebrow">Current folder</span>
+    <h1>{{ folder.name }}</h1>
+  </div>
+</section>
 <section class="folder-actions">
   <button class="btn" type="button" onclick="document.getElementById('share-dialog').showModal()">Copy share link</button>
   <details class="inline-form" name="gallery-menu">
@@ -47,15 +54,49 @@
 </dialog>
 {% endif %}
 
+<details class="folder-create-panel" name="gallery-menu">
+  <summary class="btn folder-create-trigger">+ New folder</summary>
+  <form action="/folders" method="post" class="folder-create-form" data-loading="Creating folder…" data-async-form>
+    <input type="hidden" name="parent_id" value="{{ folder.id if folder else '' }}">
+    <div class="folder-create-heading">
+      <span class="folder-create-preview" id="folder-create-preview" style="--folder-color: #4f9cf9" aria-hidden="true">📁</span>
+      <div>
+        <span class="eyebrow">New folder</span>
+        <strong>{% if folder %}Inside {{ folder.name }}{% else %}At the library root{% endif %}</strong>
+      </div>
+    </div>
+    <label class="field-label" for="folder-name">Folder name</label>
+    <input id="folder-name" type="text" name="name" placeholder="Folder name" maxlength="120" required>
+    <fieldset class="folder-options">
+      <legend>Color</legend>
+      <div class="color-options">
+        {% for color in ['#4f9cf9','#18c9a7','#8b7cf6','#ef6f91','#f6a94a','#e5cb5c','#6bc86d','#aab2c4'] %}
+        <label class="color-choice" style="--choice-color: {{ color }}">
+          <input type="radio" name="color" value="{{ color }}" {% if loop.first %}checked{% endif %}>
+          <span aria-label="Color {{ loop.index }}"></span>
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+    <fieldset class="folder-options">
+      <legend>Icon</legend>
+      <div class="icon-options">
+        {% for icon in ['📁','📷','🎨','🎵','🎬','📚','💼','🧪','⭐','🗃️'] %}
+        <label class="icon-choice">
+          <input type="radio" name="icon" value="{{ icon }}" {% if loop.first %}checked{% endif %}>
+          <span>{{ icon }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+    <div class="folder-create-actions">
+      <button class="btn" type="button" onclick="this.closest('details').removeAttribute('open')">Cancel</button>
+      <button class="btn primary" type="submit">Create folder</button>
+    </div>
+  </form>
+</details>
+
 <section class="upload-zone" id="dropzone">
-  <details class="inline-form new-folder-spot" name="gallery-menu">
-    <summary class="btn ghost">+ New folder</summary>
-    <form action="/folders" method="post" class="new-folder-form" data-loading="Creating folder…" data-async-form>
-      <input type="hidden" name="parent_id" value="{{ folder.id if folder else '' }}">
-      <input type="text" name="name" placeholder="Folder name" required autofocus>
-      <button class="btn primary" type="submit">Create</button>
-    </form>
-  </details>
   <div class="upload-main">
     <div class="upload-icon" aria-hidden="true">⬆</div>
     <div class="upload-prompt">
@@ -93,8 +134,8 @@
 {% if subfolders %}
 <section class="folder-grid">
   {% for sf in subfolders %}
-  <a class="folder-tile droptarget" href="/folder/{{ sf.id }}" data-folder-id="{{ sf.id }}">
-    <div class="folder-icon">📁</div>
+  <a class="folder-tile droptarget" style="--folder-color: {{ sf.color }}" href="/folder/{{ sf.id }}" data-folder-id="{{ sf.id }}">
+    <div class="folder-icon">{{ sf.icon }}</div>
     <span class="folder-name">{{ sf.name }}</span>
   </a>
   {% endfor %}
@@ -158,6 +199,15 @@ const selCountEl = document.getElementById('sel-count');
 const selDelete = document.getElementById('sel-delete');
 const selClear = document.getElementById('sel-clear');
 const currentFolder = {{ (folder.id|tojson) if folder else 'null' }};
+
+// ---------- Folder appearance preview ----------
+const folderPreview = document.getElementById('folder-create-preview');
+const folderCreateForm = document.querySelector('.folder-create-form');
+folderCreateForm?.addEventListener('change', event => {
+  if (!folderPreview) return;
+  if (event.target.name === 'color') folderPreview.style.setProperty('--folder-color', event.target.value);
+  if (event.target.name === 'icon') folderPreview.textContent = event.target.value;
+});
 
 // ---------- Upload (drag onto upload zone, or file input) ----------
 ['dragenter','dragover'].forEach(e => dz.addEventListener(e, ev => {

@@ -26,3 +26,13 @@ jobs:
       - run: make test-js
       - run: make test-ops
       - run: pip-audit -r requirements.txt
+      - name: Build and import the production image
+        run: |
+          docker build --tag openshare-ci .
+          docker run --rm \
+            --env SESSION_SECRET=ci-session-secret-that-is-long-enough \
+            --env OIDC_CLIENT_ID=ci-client \
+            --env OIDC_CLIENT_SECRET=ci-secret \
+            --env OIDC_ISSUER=https://auth.example.test/application/o/openshare/ \
+            --entrypoint python openshare-ci \
+            -c 'import main; print(main.APP_VERSION)'

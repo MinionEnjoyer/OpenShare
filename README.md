@@ -9,7 +9,10 @@ OpenID Connect login. It provides in-browser viewers, automatic thumbnails, fold
 share links — and doubles as the upload/attachment backend for
 **[OpenChat](https://github.com/MinionEnjoyer/OpenChat)**.
 
-## If you found this project useful, consider supporting me here: https://buymeacoffee.com/minionenjoyer Thank you!
+## Support
+
+If OpenShare is useful to you, project support is available through
+[Buy Me a Coffee](https://buymeacoffee.com/minionenjoyer).
 
 ## Features
 
@@ -29,7 +32,7 @@ share links — and doubles as the upload/attachment backend for
 FastAPI (Python 3.12) · SQLite · Authlib (OIDC) · Pillow / ffmpeg / poppler / pyrender for
 thumbnails · Jinja2 templates. Ships as a single Docker image.
 
-The current OpenShare release is **0.2.0**. The canonical value lives in [`VERSION`](VERSION), is
+The current OpenShare release is **0.2.1**. The canonical value lives in [`VERSION`](VERSION), is
 shown in the web footer, and is returned by `GET /health` so operators can verify the active build.
 
 ## Quick start
@@ -148,5 +151,8 @@ make test-integration
 make test-cov        # branch coverage + coverage.xml
 make verify          # lint, coverage, loading/deployer checks, and production dependency audit
 ```
+
+CI also builds the production Docker image and imports the application inside it. This smoke check
+prevents a release from passing when a locally imported module is missing from the image.
 
 See [`tests/README.md`](tests/README.md) for fixtures, request identities, and examples.

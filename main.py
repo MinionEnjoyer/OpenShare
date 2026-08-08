@@ -621,12 +621,52 @@ async def list_share_links(user: dict = Depends(require_user)):
             "id": link["id"],
             "folderId": link["folder_id"],
             "folderName": link["folder_name"],
-            "url": f"{PUBLIC_URL}/s/{link['id']}",
+            "url": f"{PUBLIC_URL}{link['legacy_path']}" if link["legacy_path"]
+            else f"{PUBLIC_URL}/s/{link['id']}",
             "createdAt": link["created_at"],
             "revokedAt": link["revoked_at"],
+            "legacy": bool(link["legacy_path"]),
         }
         for link in links
     ]
+
+
+@app.post("/shares/import")
+async def import_existing_share_link(
+    url: str = Form(...),
+    user: dict = Depends(require_user),
+):
+    """Add an older /f link to My shared links without changing its address."""
+    raw = url.strip()
+    if not raw:
+        raise HTTPException(400, detail="share link required")
+    parsed = urlsplit(raw)
+    public = urlsplit(PUBLIC_URL)
+    if parsed.scheme or parsed.netloc:
+        candidate_origin = normalize_origin(f"{parsed.scheme}://{parsed.netloc}")
+        expected_origin = normalize_origin(f"{public.scheme}://{public.netloc}")
+        if not candidate_origin or candidate_origin != expected_origin:
+            raise HTTPException(400, detail="link must belong to this OpenShare server")
+    if parsed.query or parsed.fragment:
+        raise HTTPException(400, detail="share link cannot contain a query or fragment")
+    match = re.fullmatch(r"/f/([A-Za-z0-9]+?)/?", parsed.path)
+    if not match:
+        raise HTTPException(400, detail="enter an existing OpenShare folder link")
+    folder_id = match.group(1)
+    folder = await _owner_folder(folder_id, user["sub"])
+    legacy_path = f"/f/{folder_id}"
+    link = await db.share_link_import(new_id(18), folder_id, user["sub"], legacy_path)
+    if not link:
+        raise HTTPException(400, detail="could not add existing share link")
+    return {
+        "id": link["id"],
+        "folderId": folder_id,
+        "folderName": folder["name"],
+        "url": f"{PUBLIC_URL}{legacy_path}",
+        "createdAt": link["created_at"],
+        "revokedAt": link["revoked_at"],
+        "legacy": True,
+    }
 
 
 @app.get("/api/companion-content")
@@ -650,6 +690,7 @@ async def list_companion_content(
             "thumbUrl": f"/thumb/{item['id']}" if item["thumb_path"] else None,
             "uploadedAt": item["uploaded_at"],
             "sizeBytes": item["size_bytes"],
+            "duplicateCount": item["duplicate_count"],
         }
         for item in items
     ]

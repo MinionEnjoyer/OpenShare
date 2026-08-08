@@ -43,12 +43,17 @@ def test_schema_initialization_is_idempotent_and_complete(harness: OpenShareHarn
                 row[1]
                 for row in await (await connection.execute("PRAGMA table_info(folders)")).fetchall()
             }
+            share_columns = {
+                row[1]
+                for row in await (await connection.execute("PRAGMA table_info(share_links)")).fetchall()
+            }
             journal_mode = (await (await connection.execute("PRAGMA journal_mode")).fetchone())[0]
-            return columns, folder_columns, journal_mode
+            return columns, folder_columns, share_columns, journal_mode
 
-    columns, folder_columns, journal_mode = run(inspect())
+    columns, folder_columns, share_columns, journal_mode = run(inspect())
     assert {"folder_id", "sha256", "waveform", "source_app"} <= columns
     assert {"color", "icon", "preview_mode", "preview_media_id"} <= folder_columns
+    assert "legacy_path" in share_columns
     assert journal_mode == "wal"
 
 

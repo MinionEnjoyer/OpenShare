@@ -7,6 +7,8 @@ export type Folder = {
   preview_mode?: 'icon' | 'dynamic' | 'custom';
   preview_media_id?: string | null;
   preview_images?: FolderPreviewImage[];
+  child_count?: number;
+  item_count?: number;
 };
 
 export type FolderPreviewImage = { id: string; name: string; thumb_url: string };

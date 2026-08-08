@@ -21,15 +21,20 @@ If OpenShare is useful to you, project support is available through
 - **Automatic thumbnails** for images, video frames, PDFs, and 3D models; audio uploads get a
   stored **waveform** (audio-level peaks) + duration, served at `/waveform/<id>`.
 - **Content-hash de-duplication** — the same file uploaded twice is stored once.
-- **Folders** with nesting, bulk actions, an accessible keyboard-navigable directory tree,
-  custom RGB colors, the full locally bundled OpenChat emoji picker, a focused edit mode, and
-  optional dynamic or user-selected image covers (icon-only by default).
-- **Recorded share links** — create, copy, review, and revoke links from “My shared links,” with
-  stable `/(i|v|au|d|t|m|a)/‹id›` viewer URLs plus `/raw` and `/thumb` for direct bytes.
+- **Folders** with nesting, bulk actions, a two-pane searchable library explorer, custom RGB
+  colors, the full locally bundled OpenChat emoji picker, a focused edit mode, and optional
+  dynamic or user-selected image covers (icon-only by default). The upload surface remains above
+  the folder workspace at every viewport size.
+- **Recorded share links** — create, copy, review, and revoke links from “My shared links,” or add
+  an existing owned `/f/<id>` folder link without changing the URL already shared. Stable
+  `/(i|v|au|d|t|m|a)/<id>` viewer URLs also expose `/raw` and `/thumb` for direct bytes.
 - **Companion collections** — when OpenChat is configured, its attachments, stickers, avatars,
   and soundboard assets appear in a dedicated OpenChat tab beside “My shared links.” They never
   create or clutter the user's personal folder tree.
-- **Light, dark, or system appearance** stored per browser in the settings menu.
+- **Per-browser preferences** for light, dark, or system appearance, comfortable or compact folder
+  density, reduced animation, and delete confirmation.
+- **Consistent loading feedback** using the concentric OpenChat blue-and-green spinner for uploads,
+  media loading, and React workspace requests.
 - **SSO** via any OpenID Connect provider (Authentik, Keycloak, …); sessions are cookie-based.
 - **Embeds anywhere** — set `ALLOWED_ORIGINS` so a trusted client (e.g. your OpenChat) can upload
   with credentials and render Share links inline.
@@ -40,7 +45,7 @@ FastAPI (Python 3.12) · React 18 / TypeScript · SQLite · Authlib (OIDC) · Pi
 poppler / pyrender for thumbnails. React owns the folder-management workspace while FastAPI
 continues to own authentication, storage, viewers, and stable resource URLs. Ships as one image.
 
-The current OpenShare release is **0.2.31**. The canonical value lives in [`VERSION`](VERSION), is
+The current OpenShare release is **0.2.32**. The canonical value lives in [`VERSION`](VERSION), is
 shown in the web footer, and is returned by `GET /health` so operators can verify the active build.
 
 ## Quick start
@@ -98,7 +103,9 @@ OpenShare — it simply hides file/image uploads.
 When the companion key is enabled, OpenShare classifies service-key uploads as OpenChat content.
 The web library exposes that logical collection beside “My shared links,” while normal uploads
 remain in the personal library. Upgrading from an older release migrates assets from the former
-top-level `Chat` folder into this collection and removes that folder when it is empty.
+top-level `Chat` folder into this collection and removes that folder when it is empty. Identical
+historical OpenChat uploads are grouped by content hash in the companion view while every original
+asset ID remains valid for existing messages.
 
 ## Storage layout
 

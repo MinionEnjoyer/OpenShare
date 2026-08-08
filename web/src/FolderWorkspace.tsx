@@ -1,5 +1,6 @@
-import { CSSProperties, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { CSSProperties, FormEvent, KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { EmojiPicker } from './EmojiPicker';
+import { applyPreferences, storedPreferences, type LibraryPreferences } from './preferences';
 import { Spinner } from './Spinner';
 import { applyTheme, storedTheme, type ThemePreference } from './theme';
 import { ancestorIds, buildFolderForest, filterTreeIds, flattenVisibleTree } from './tree';
@@ -20,6 +21,7 @@ type ShareLink = {
   url: string;
   createdAt: string;
   revokedAt: string | null;
+  legacy: boolean;
 };
 
 type CompanionAsset = {
@@ -30,10 +32,12 @@ type CompanionAsset = {
   thumbUrl: string | null;
   uploadedAt: string;
   sizeBytes: number;
+  duplicateCount: number;
 };
 
 function Dialog({ title, description, className = '', onClose, children }: DialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     const previousOverflow = document.body.style.overflow;
@@ -51,11 +55,11 @@ function Dialog({ title, description, className = '', onClose, children }: Dialo
     <div className="os-layer" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose();
     }}>
-      <div ref={dialogRef} tabIndex={-1} className={`os-dialog ${className}`} role="dialog" aria-modal="true" aria-labelledby="os-dialog-title">
+      <div ref={dialogRef} tabIndex={-1} className={`os-dialog ${className}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header className="os-dialog-header">
           <div>
             <span className="eyebrow">OpenShare library</span>
-            <h2 id="os-dialog-title">{title}</h2>
+            <h2 id={titleId}>{title}</h2>
             {description && <p>{description}</p>}
           </div>
           <button className="os-icon-button" type="button" aria-label="Close" onClick={onClose}>×</button>
@@ -66,9 +70,11 @@ function Dialog({ title, description, className = '', onClose, children }: Dialo
   );
 }
 
-function childLabel(folder: FlatFolderNode) {
-  const count = folder.children.length;
-  return count ? `${count} ${count === 1 ? 'folder' : 'folders'}` : 'Empty folder';
+function childLabel(folder: Folder & { children?: Folder[] }) {
+  const folders = folder.child_count ?? folder.children?.length ?? 0;
+  const items = folder.item_count ?? 0;
+  if (!folders && !items) return 'Empty';
+  return [items ? `${items} ${items === 1 ? 'item' : 'items'}` : '', folders ? `${folders} ${folders === 1 ? 'folder' : 'folders'}` : ''].filter(Boolean).join(' · ');
 }
 
 function FolderVisual({ folder, className }: { folder: Folder; className: string }) {
@@ -87,17 +93,35 @@ function TreeBrowser({ folders, currentFolder, onClose }: {
   currentFolder: Folder | null;
   onClose: () => void;
 }) {
+  const expansionKey = 'openshare-tree-expanded';
   const forest = useMemo(() => buildFolderForest(folders), [folders]);
+  const folderMap = useMemo(() => new Map(folders.map((folder) => [folder.id, folder])), [folders]);
+  const currentPath = useMemo(() => {
+    const path: Folder[] = [];
+    let cursor = currentFolder;
+    const seen = new Set<string>();
+    while (cursor && !seen.has(cursor.id)) {
+      seen.add(cursor.id); path.unshift(cursor); cursor = cursor.parent_id ? folderMap.get(cursor.parent_id) ?? null : null;
+    }
+    return path;
+  }, [currentFolder, folderMap]);
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     const initial = ancestorIds(folders, currentFolder?.id ?? null);
     if (currentFolder?.id) initial.add(currentFolder.id);
-    forest.forEach((root) => initial.add(root.id));
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(expansionKey) || '[]');
+      if (Array.isArray(saved)) saved.forEach((id) => { if (typeof id === 'string') initial.add(id); });
+    } catch { /* use the current path */ }
     return initial;
   });
   const visibleIds = useMemo(() => filterTreeIds(folders, query), [folders, query]);
   const rows = useMemo(() => flattenVisibleTree(forest, expanded, visibleIds), [forest, expanded, visibleIds]);
   const treeRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    window.localStorage.setItem(expansionKey, JSON.stringify([...expanded]));
+  }, [expanded]);
 
   const toggle = (id: string) => setExpanded((before) => {
     const next = new Set(before);
@@ -132,64 +156,52 @@ function TreeBrowser({ folders, currentFolder, onClose }: {
   };
 
   return (
-    <Dialog title="Library tree" description="Search or move through every folder without losing your place." className="os-tree-dialog" onClose={onClose}>
-      <div className="os-tree-toolbar">
-        <label className="os-tree-search">
-          <span aria-hidden="true">⌕</span>
-          <input autoFocus type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a folder" aria-label="Find a folder" />
-          {query && <button type="button" onClick={() => setQuery('')} aria-label="Clear folder search">×</button>}
-        </label>
-        <div className="os-tree-tools" aria-label="Tree display controls">
-          <button type="button" onClick={() => setExpanded(new Set(folders.map((folder) => folder.id)))}>Expand all</button>
-          <button type="button" onClick={() => setExpanded(new Set())}>Collapse all</button>
-        </div>
-      </div>
-      <div className="os-tree-summary" aria-live="polite">
-        <span>{query ? `${rows.length} matching path${rows.length === 1 ? '' : 's'}` : `${folders.length} folders`}</span>
-        <span>Arrow keys navigate</span>
-      </div>
-      <nav ref={treeRef} className="os-tree" aria-label="Folder directory" role="tree">
-        <a
-          href="/"
-          className={`os-tree-row os-tree-root-row ${currentFolder ? '' : 'is-current'}`}
-          data-tree-id="root"
-          role="treeitem"
-          aria-current={currentFolder ? undefined : 'page'}
-          onKeyDown={(event) => onTreeKeyDown(event, null, -1)}
-        >
-          <span className="os-tree-root-mark" aria-hidden="true">⌂</span>
-          <span className="os-tree-copy"><strong>All files</strong><small>Library root</small></span>
-          {!currentFolder && <span className="os-tree-current">Current</span>}
-        </a>
-        {rows.map((row, index) => {
-          const isCurrent = row.id === currentFolder?.id;
-          const isExpanded = expanded.has(row.id) || Boolean(visibleIds);
-          const style = { '--tree-depth': row.depth, '--folder-color': row.color } as CSSProperties;
-          return (
-            <div key={row.id} className="os-tree-item" role="none" style={style}>
-              <div className={`os-tree-row ${isCurrent ? 'is-current' : ''}`} role="treeitem" aria-level={row.depth + 1} aria-expanded={row.children.length ? isExpanded : undefined} aria-current={isCurrent ? 'page' : undefined}>
-                {row.children.length ? (
-                  <button className="os-tree-disclosure" type="button" aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${row.name}`} onClick={() => toggle(row.id)} tabIndex={-1}>
-                    <span className={isExpanded ? 'is-open' : ''}>›</span>
-                  </button>
-                ) : <span className="os-tree-leaf" aria-hidden="true" />}
-                <a
-                  href={`/folder/${encodeURIComponent(row.id)}`}
-                  className="os-tree-target"
-                  data-tree-id={row.id}
-                  onKeyDown={(event) => onTreeKeyDown(event, row, index)}
-                >
-                  <span className="os-tree-folder-icon" aria-hidden="true">{row.icon}</span>
-                  <span className="os-tree-copy"><strong>{row.name}</strong><small>{childLabel(row)}</small></span>
-                  {isCurrent && <span className="os-tree-current">Current</span>}
-                  {!isCurrent && row.children.length > 0 && <span className="os-tree-count">{row.children.length}</span>}
-                </a>
-              </div>
+    <Dialog title="Browse library" description="A focused view of every folder and its contents." className="os-tree-dialog" onClose={onClose}>
+      <div className="os-explorer-shell">
+        <aside className="os-explorer-sidebar" aria-label="Library summary">
+          <span className="eyebrow">Locations</span>
+          <a href="/" className={!currentFolder ? 'is-current' : ''}><span aria-hidden="true">⌂</span><span><strong>All files</strong><small>Library root</small></span></a>
+          {currentPath.length > 0 && <div className="os-explorer-path">
+            <span className="eyebrow">Current path</span>
+            {currentPath.map((folder) => <a href={`/folder/${encodeURIComponent(folder.id)}`} className={folder.id === currentFolder?.id ? 'is-current' : ''} key={folder.id}>
+              <span aria-hidden="true">{folder.icon}</span><span><strong>{folder.name}</strong><small>{folder.id === currentFolder?.id ? 'Open now' : 'Parent folder'}</small></span>
+            </a>)}
+          </div>}
+          <dl><div><dt>Folders</dt><dd>{folders.length}</dd></div><div><dt>Files</dt><dd>{folders.reduce((sum, folder) => sum + (folder.item_count ?? 0), 0)}</dd></div></dl>
+        </aside>
+        <section className="os-explorer-main">
+          <div className="os-tree-toolbar">
+            <label className="os-tree-search">
+              <span aria-hidden="true">⌕</span>
+              <input autoFocus type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search folders" aria-label="Find a folder" />
+              {query && <button type="button" onClick={() => setQuery('')} aria-label="Clear folder search">×</button>}
+            </label>
+            <div className="os-tree-tools" aria-label="Tree display controls">
+              <button type="button" onClick={() => setExpanded(new Set(folders.map((folder) => folder.id)))}>Expand</button>
+              <button type="button" onClick={() => setExpanded(new Set())}>Collapse</button>
             </div>
-          );
-        })}
-        {rows.length === 0 && <div className="os-tree-empty"><strong>No folders found</strong><span>Try a shorter or different name.</span></div>}
-      </nav>
+          </div>
+          <div className="os-tree-summary" aria-live="polite"><span>{query ? `${rows.length} results` : 'Folders'}</span><span>Use arrow keys to navigate</span></div>
+          <nav ref={treeRef} className="os-tree" aria-label="Folder directory" role="tree">
+            {rows.map((row, index) => {
+              const isCurrent = row.id === currentFolder?.id;
+              const isExpanded = expanded.has(row.id) || Boolean(visibleIds);
+              const style = { '--tree-depth': row.depth, '--folder-color': row.color } as CSSProperties;
+              return <div key={row.id} className="os-tree-item" role="none" style={style}>
+                <div className={`os-tree-row ${isCurrent ? 'is-current' : ''}`} role="treeitem" aria-level={row.depth + 1} aria-expanded={row.children.length ? isExpanded : undefined} aria-current={isCurrent ? 'page' : undefined}>
+                  {row.children.length ? <button className="os-tree-disclosure" type="button" aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${row.name}`} onClick={() => toggle(row.id)} tabIndex={-1}><span className={isExpanded ? 'is-open' : ''}>›</span></button> : <span className="os-tree-leaf" aria-hidden="true" />}
+                  <a href={`/folder/${encodeURIComponent(row.id)}`} className="os-tree-target" data-tree-id={row.id} onKeyDown={(event) => onTreeKeyDown(event, row, index)}>
+                    <span className="os-tree-folder-icon" aria-hidden="true">{row.icon}</span>
+                    <span className="os-tree-copy"><strong>{row.name}</strong><small>{childLabel(row)}</small></span>
+                    {isCurrent ? <span className="os-tree-current">Current</span> : <span className="os-tree-open" aria-hidden="true">›</span>}
+                  </a>
+                </div>
+              </div>;
+            })}
+            {rows.length === 0 && <div className="os-tree-empty"><strong>No folders found</strong><span>Try a shorter or different name.</span></div>}
+          </nav>
+        </section>
+      </div>
     </Dialog>
   );
 }
@@ -352,6 +364,9 @@ function ShareLinksDialog({ openChatConnected, onClose }: { openChatConnected: b
   const [assets, setAssets] = useState<CompanionAsset[] | null>(null);
   const [tab, setTab] = useState<'links' | 'openchat'>('links');
   const [error, setError] = useState('');
+  const [importOpen, setImportOpen] = useState(false);
+  const [importUrl, setImportUrl] = useState('');
+  const [importing, setImporting] = useState(false);
   const load = () => {
     setError('');
     fetch('/api/share-links', { credentials: 'same-origin' })
@@ -378,34 +393,58 @@ function ShareLinksDialog({ openChatConnected, onClose }: { openChatConnected: b
     const response = await fetch(`/shares/${encodeURIComponent(id)}/revoke`, { method: 'POST', credentials: 'same-origin' });
     if (response.ok) load(); else setError(`Could not revoke link (${response.status})`);
   };
+  const importLink = async (event: FormEvent) => {
+    event.preventDefault(); setImporting(true); setError('');
+    const body = new FormData(); body.set('url', importUrl.trim());
+    try {
+      const response = await fetch('/shares/import', { method: 'POST', body, credentials: 'same-origin' });
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || `Request failed (${response.status})`);
+      setImportUrl(''); setImportOpen(false); load();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setImporting(false); }
+  };
   return <Dialog title="Shared and companion content" description="Manage public links and content stored on behalf of connected apps." className="os-share-dialog" onClose={onClose}>
     <div className="os-content-tabs" role="tablist" aria-label="Content collections">
       <button type="button" role="tab" aria-selected={tab === 'links'} onClick={() => setTab('links')}>My shared links</button>
       {openChatConnected && <button type="button" role="tab" aria-selected={tab === 'openchat'} onClick={() => setTab('openchat')}>OpenChat content</button>}
     </div>
+    {tab === 'links' && <div className="os-share-toolbar">
+      <span>Links created in OpenShare are saved here automatically.</span>
+      <button type="button" aria-expanded={importOpen} onClick={() => setImportOpen((value) => !value)}>Add existing link</button>
+    </div>}
+    {tab === 'links' && importOpen && <form className="os-share-import" onSubmit={importLink}>
+      <label className="os-field"><span>Existing folder link</span><input autoFocus type="url" value={importUrl} onChange={(event) => setImportUrl(event.target.value)} placeholder="https://share.example.com/f/…" required /></label>
+      <p>Paste a legacy OpenShare folder link. Its address stays unchanged.</p>
+      <div><button type="button" onClick={() => setImportOpen(false)} disabled={importing}>Cancel</button><button className="primary" disabled={importing || !importUrl.trim()}>{importing && <Spinner label="Adding link" />} Add to list</button></div>
+    </form>}
     <div className="os-share-list">
       {tab === 'links' && links === null && !error && <div className="os-dialog-loading"><Spinner size="sm" label="Loading shared links" /> Loading shared links…</div>}
       {error && <div className="os-form-error" role="alert">{error}</div>}
       {tab === 'links' && links?.length === 0 && <div className="os-share-empty"><strong>No shared links yet</strong><span>Create one from a folder’s actions.</span></div>}
       {tab === 'links' && links?.map((link) => <article className={`os-share-row ${link.revokedAt ? 'is-revoked' : ''}`} key={link.id}>
         <span className="os-share-mark" aria-hidden="true">↗</span>
-        <span className="os-share-copy"><strong>{link.folderName}</strong><small>Created {new Date(link.createdAt).toLocaleString()}</small><code>{link.url}</code></span>
+        <span className="os-share-copy"><strong>{link.folderName} {link.legacy && <span className="os-legacy-badge">Existing link</span>}</strong><small>Added {new Date(link.createdAt).toLocaleString()}</small><code>{link.url}</code></span>
         <span className="os-share-actions">
           {!link.revokedAt && <button type="button" onClick={() => navigator.clipboard.writeText(link.url)}>Copy</button>}
-          {!link.revokedAt ? <button className="danger" type="button" onClick={() => revoke(link.id)}>Revoke</button> : <span>Revoked</span>}
+          {!link.revokedAt ? <button className="danger" type="button" onClick={() => revoke(link.id)}>{link.legacy ? 'Remove' : 'Revoke'}</button> : <span>{link.legacy ? 'Removed' : 'Revoked'}</span>}
         </span>
       </article>)}
       {tab === 'openchat' && assets === null && !error && <div className="os-dialog-loading"><Spinner size="sm" label="Loading OpenChat content" /> Loading OpenChat content…</div>}
       {tab === 'openchat' && assets?.length === 0 && <div className="os-share-empty"><strong>No OpenChat content yet</strong><span>Attachments, stickers, avatars, and soundboard uploads will appear here.</span></div>}
       {tab === 'openchat' && assets?.map((asset) => <a className="os-companion-row" href={asset.viewUrl} key={asset.id}>
         <span className="os-companion-thumb">{asset.thumbUrl ? <img src={asset.thumbUrl} alt="" loading="lazy" /> : <span aria-hidden="true">{asset.mediaType === 'audio' ? '♪' : '□'}</span>}</span>
-        <span><strong>{asset.name}</strong><small>{asset.mediaType} · {new Date(asset.uploadedAt).toLocaleString()}</small></span><span aria-hidden="true">›</span>
+        <span><strong>{asset.name}</strong><small>{asset.mediaType} · {new Date(asset.uploadedAt).toLocaleString()}{asset.duplicateCount > 1 ? ` · ${asset.duplicateCount} identical uploads grouped` : ''}</small></span><span aria-hidden="true">›</span>
       </a>)}
     </div>
   </Dialog>;
 }
 
-function SettingsDialog({ appVersion, onClose }: { appVersion: string; onClose: () => void }) {
+function SettingsDialog({ appVersion, preferences, onPreferencesChange, onClose }: {
+  appVersion: string;
+  preferences: LibraryPreferences;
+  onPreferencesChange: (preferences: LibraryPreferences) => void;
+  onClose: () => void;
+}) {
   const [theme, setTheme] = useState<ThemePreference>(() => storedTheme());
   useEffect(() => {
     applyTheme(theme);
@@ -430,7 +469,19 @@ function SettingsDialog({ appVersion, onClose }: { appVersion: string; onClose: 
           </label>)}
         </div>
       </section>
-      <footer><span>OpenShare</span><strong>v{appVersion}</strong></footer>
+      <section><span className="eyebrow">Library</span><h3>Folder layout</h3><p>Choose how much information fits in the folder grid.</p>
+        <div className="os-setting-segments" role="radiogroup" aria-label="Folder density">
+          {(['comfortable', 'compact'] as const).map((density) => <label className={preferences.folderDensity === density ? 'is-selected' : ''} key={density}>
+            <input type="radio" name="folder-density" checked={preferences.folderDensity === density} onChange={() => onPreferencesChange({ ...preferences, folderDensity: density })} />
+            <span><strong>{density === 'comfortable' ? 'Comfortable' : 'Compact'}</strong><small>{density === 'comfortable' ? 'Roomier cards and details' : 'More folders per row'}</small></span>
+          </label>)}
+        </div>
+      </section>
+      <section className="os-setting-rows"><span className="eyebrow">Behavior</span>
+        <label><span><strong>Reduce animation</strong><small>Slow the spinner and stop rotating folder previews.</small></span><input type="checkbox" checked={preferences.motion === 'reduced'} onChange={(event) => onPreferencesChange({ ...preferences, motion: event.target.checked ? 'reduced' : 'system' })} /></label>
+        <label><span><strong>Confirm folder deletion</strong><small>Ask before removing a folder and moving its contents up.</small></span><input type="checkbox" checked={preferences.confirmDeletes} onChange={(event) => onPreferencesChange({ ...preferences, confirmDeletes: event.target.checked })} /></label>
+      </section>
+      <footer>OpenShare v{appVersion}</footer>
     </div>
   </Dialog>;
 }
@@ -444,6 +495,9 @@ export function FolderWorkspace({ data }: { data: FolderWorkspaceData }) {
   const [sharesOpen, setSharesOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [notice, setNotice] = useState('');
+  const [preferences, setPreferences] = useState<LibraryPreferences>(() => storedPreferences());
+
+  useEffect(() => applyPreferences(preferences), [preferences]);
 
   const copyShareLink = async () => {
     if (!currentFolder) return;
@@ -458,7 +512,8 @@ export function FolderWorkspace({ data }: { data: FolderWorkspaceData }) {
   };
 
   const deleteCurrent = async () => {
-    if (!currentFolder || !window.confirm(`Delete ${currentFolder.name}? Its contents will move up one level.`)) return;
+    if (!currentFolder) return;
+    if (preferences.confirmDeletes && !window.confirm(`Delete ${currentFolder.name}? Its contents will move up one level.`)) return;
     const response = await fetch(`/folders/${encodeURIComponent(currentFolder.id)}/delete`, { method: 'POST', credentials: 'same-origin' });
     if (response.ok) window.location.assign(response.url || '/');
     else setNotice(`Could not delete folder (${response.status})`);
@@ -491,7 +546,7 @@ export function FolderWorkspace({ data }: { data: FolderWorkspaceData }) {
         {subfolders.map((folder) => <article className="os-folder-card" key={folder.id} style={{ '--folder-color': folder.color } as CSSProperties}>
           <a className="os-folder-tile droptarget" href={`/folder/${encodeURIComponent(folder.id)}`} data-folder-id={folder.id}>
             <FolderVisual folder={folder} className="os-folder-card-icon" />
-            <span className="os-folder-card-copy"><strong>{folder.name}</strong><small>Open folder</small></span>
+            <span className="os-folder-card-copy"><strong>{folder.name}</strong><small>{childLabel(folder) === 'Empty' ? 'Empty folder' : childLabel(folder)}</small></span>
             <span className="os-folder-arrow" aria-hidden="true">›</span>
           </a>
           {editMode && <button className="os-folder-card-edit" type="button" onClick={() => setEditing(folder)} aria-label={`Edit ${folder.name}`}>Edit</button>}
@@ -505,7 +560,7 @@ export function FolderWorkspace({ data }: { data: FolderWorkspaceData }) {
       {editing !== undefined && <FolderForm folder={editing} currentFolder={currentFolder} onClose={() => setEditing(undefined)} />}
       {moveOpen && currentFolder && <MoveFolderDialog folder={currentFolder} folders={allFolders} onClose={() => setMoveOpen(false)} />}
       {sharesOpen && <ShareLinksDialog openChatConnected={openChatConnected} onClose={() => setSharesOpen(false)} />}
-      {settingsOpen && <SettingsDialog appVersion={appVersion} onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && <SettingsDialog appVersion={appVersion} preferences={preferences} onPreferencesChange={setPreferences} onClose={() => setSettingsOpen(false)} />}
       {notice && <div className="os-toast" role="status">{notice}</div>}
     </section>
   );

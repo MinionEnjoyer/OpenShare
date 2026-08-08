@@ -42,6 +42,11 @@ body { min-height:100vh; display:flex; flex-direction:column; background:radial-
 :root[data-theme="light"] .app-nav { background:rgba(255,255,255,.82); }
 :root[data-theme="light"] .search-bar input[type=search],
 :root[data-theme="light"] .btn { background:rgba(255,255,255,.92); }
+:root[data-theme="light"] .btn.primary {
+  background:linear-gradient(135deg,#147fe8,#0b93dd);
+  border-color:#62b6ff;
+  color:#fff;
+}
 a { color: inherit; text-decoration: none; }
 
 .app-nav {
@@ -70,7 +75,7 @@ a { color: inherit; text-decoration: none; }
 
 main { flex:1; width:100%; padding:clamp(1.1rem,2.7vw,2.25rem); max-width:1440px; margin:0 auto; }
 main > * + * { margin-top:1.35rem; }
-.app-version { padding: .75rem 1rem 1rem; color: var(--muted); font-size: .78rem; text-align: center; }
+.app-version { display:flex; align-items:center; justify-content:center; width:100%; min-height:48px; padding:.75rem 1rem 1rem; border-top:1px solid color-mix(in srgb,var(--line) 65%,transparent); color:var(--muted); font-size:.78rem; font-weight:650; text-align:center; }
 
 .btn {
   display:inline-flex; align-items:center; justify-content:center;
@@ -89,15 +94,19 @@ main > * + * { margin-top:1.35rem; }
 /* Reusable OpenShare loading asset. The orbit is pure CSS so it remains exactly
    concentric at every size; the stationary OpenShare mark anchors its center. */
 @keyframes oc-spin { to { transform: rotate(1turn); } }
+@keyframes oc-orbit-glow {
+  0%, 100% { opacity:.42; filter:blur(5px); }
+  50% { opacity:.82; filter:blur(8px); }
+}
 @keyframes oc-soft-glow {
   0%, 100% { box-shadow: calc(-1 * var(--oc-glow-offset)) 0 var(--oc-glow-radius) rgba(32,145,255,.10), var(--oc-glow-offset) 0 var(--oc-glow-radius) rgba(24,218,174,.09); }
   50% { box-shadow: calc(-1 * var(--oc-glow-offset)) 0 var(--oc-glow-radius) rgba(32,145,255,.18), var(--oc-glow-offset) 0 var(--oc-glow-radius) rgba(24,218,174,.16); }
 }
 .oc-spinner {
-  --oc-size: 48px;
+  --oc-spinner-size: 48px;
   --oc-glow-offset: 2px;
   --oc-glow-radius: 8px;
-  --oc-orbit: conic-gradient(
+  --oc-orbit-colors: conic-gradient(
     transparent 0deg 7deg,
     #14e3ba 7deg,
     #11cda8 78deg,
@@ -108,14 +117,16 @@ main > * + * { margin-top:1.35rem; }
     #2fb7ff 343deg,
     transparent 353deg 360deg
   );
-  --oc-mask: radial-gradient(farthest-side, transparent 0 83%, #000 84% 97%, transparent 98% 100%);
+  --oc-orbit-mask: radial-gradient(farthest-side, transparent 0 83%, #000 84% 97%, transparent 98% 100%);
   position: relative;
   display: inline-block;
-  width: var(--oc-size);
-  height: var(--oc-size);
+  width: var(--oc-spinner-size);
+  height: var(--oc-spinner-size);
+  aspect-ratio:1;
   flex: 0 0 auto;
   border-radius: 50%;
   background: url('/static/logo.png') center / 58% 58% no-repeat;
+  isolation:isolate;
   animation: oc-soft-glow 2.4s ease-in-out infinite;
 }
 .oc-spinner::before,
@@ -126,16 +137,18 @@ main > * + * { margin-top:1.35rem; }
   border-radius: 50%;
   background:
     radial-gradient(circle, transparent 0 84%, rgba(199,255,255,.82) 85%, transparent 88%),
-    var(--oc-orbit);
-  -webkit-mask: var(--oc-mask);
-  mask: var(--oc-mask);
+    var(--oc-orbit-colors);
+  -webkit-mask: var(--oc-orbit-mask);
+  mask: var(--oc-orbit-mask);
   transform-origin: 50% 50%;
-  animation: oc-spin 1.15s linear infinite;
+  will-change:transform;
 }
-.oc-spinner--xs { --oc-size: 18px; --oc-glow-offset: .5px; --oc-glow-radius: 4px; }
-.oc-spinner--sm { --oc-size: 28px; --oc-glow-offset: 1px; --oc-glow-radius: 6px; }
-.oc-spinner--md { --oc-size: 48px; --oc-glow-offset: 2px; --oc-glow-radius: 8px; }
-.oc-spinner--lg { --oc-size: 68px; --oc-glow-offset: 2px; --oc-glow-radius: 10px; }
+.oc-spinner::before { animation:oc-spin 1.15s linear infinite,oc-orbit-glow 1.8s ease-in-out infinite; }
+.oc-spinner::after { animation:oc-spin 1.15s linear infinite; }
+.oc-spinner--xs { --oc-spinner-size: 18px; --oc-glow-offset: .5px; --oc-glow-radius: 4px; }
+.oc-spinner--sm { --oc-spinner-size: 28px; --oc-glow-offset: 1px; --oc-glow-radius: 6px; }
+.oc-spinner--md { --oc-spinner-size: 48px; --oc-glow-offset: 1px; --oc-glow-radius: 8px; }
+.oc-spinner--lg { --oc-spinner-size: 68px; --oc-glow-offset: 2px; --oc-glow-radius: 10px; }
 .oc-spinner[hidden] { display: none !important; }
 
 .page-busy {
@@ -176,9 +189,13 @@ main > * + * { margin-top:1.35rem; }
 
 @media (prefers-reduced-motion: reduce) {
   .oc-spinner { animation-duration: 4.8s; }
-  .oc-spinner::before, .oc-spinner::after { animation-duration: 2.4s; }
+  .oc-spinner::before { animation-duration:2.4s,3.6s; }
+  .oc-spinner::after { animation-duration:2.4s; }
   .active-folder-orbit::before { animation: none; }
 }
+:root[data-motion="reduced"] .oc-spinner { animation-duration:4.8s; }
+:root[data-motion="reduced"] .oc-spinner::before { animation-duration:2.4s,3.6s; }
+:root[data-motion="reduced"] .oc-spinner::after { animation-duration:2.4s; }
 
 .login-card { max-width: 440px; margin: clamp(2rem, 10vh, 6rem) auto; text-align:center; padding: 2rem 1.5rem; border:1px solid var(--line); background:var(--card); border-radius: 10px; }
 .login-card h1 { margin: 0 0 0.5rem; }

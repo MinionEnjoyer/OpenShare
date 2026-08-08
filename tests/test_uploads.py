@@ -85,6 +85,25 @@ def test_identical_uploads_deduplicate_per_owner(harness: OpenShareHarness):
     assert len(list(harness.files_dir.iterdir())) == 1
 
 
+def test_historical_openchat_duplicates_are_grouped_without_breaking_old_ids(harness: OpenShareHarness):
+    response = harness.upload(("sticker.png", PNG_1X1, "image/png"), source="sticker", service=True)
+    original = harness.media(response.json()["saved"][0]["id"])
+    duplicate = {**original, "id": "historical-duplicate", "original_name": "sticker-copy.png"}
+    duplicate.pop("uploaded_at", None)
+    run(db.insert_media(duplicate))
+
+    listed = run(db.list_companion_media(OWNER["sub"], "openchat"))
+    api_response = harness.client.get(
+        "/api/companion-content?app_name=openchat", headers=harness.owner_headers()
+    )
+
+    assert len(listed) == 1
+    assert listed[0]["duplicate_count"] == 2
+    assert run(db.get_media(original["id"])) is not None
+    assert run(db.get_media("historical-duplicate")) is not None
+    assert api_response.json()[0]["duplicateCount"] == 2
+
+
 def test_deduplication_does_not_cross_owner_boundary(harness: OpenShareHarness):
     first = harness.upload(("pixel.png", PNG_1X1, "image/png"), owner=OWNER)
     second = harness.upload(("pixel.png", PNG_1X1, "image/png"), owner=OTHER_OWNER)

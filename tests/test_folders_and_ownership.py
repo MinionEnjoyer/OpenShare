@@ -161,6 +161,54 @@ def test_recorded_share_links_can_be_listed_opened_and_revoked(harness: OpenShar
     assert missing.status_code == 404
 
 
+def test_existing_owned_folder_link_can_be_added_to_shared_links(harness: OpenShareHarness):
+    folder_id = create_folder(harness, "Legacy Shared")
+    legacy_url = f"https://share.example.test/f/{folder_id}"
+
+    imported = harness.client.post(
+        "/shares/import", headers=harness.owner_headers(), data={"url": legacy_url}
+    )
+    repeated = harness.client.post(
+        "/shares/import", headers=harness.owner_headers(), data={"url": legacy_url}
+    )
+    removed = harness.client.post(
+        f"/shares/{imported.json()['id']}/revoke", headers=harness.owner_headers()
+    )
+    restored = harness.client.post(
+        "/shares/import", headers=harness.owner_headers(), data={"url": legacy_url}
+    )
+    listed = harness.client.get("/api/share-links", headers=harness.owner_headers())
+
+    assert imported.status_code == 200
+    assert repeated.status_code == 200
+    assert removed.json() == {"revoked": True}
+    assert restored.status_code == 200
+    assert restored.json()["revokedAt"] is None
+    assert imported.json()["url"] == legacy_url
+    assert imported.json()["legacy"] is True
+    assert [link["url"] for link in listed.json()] == [legacy_url]
+
+
+def test_existing_share_link_import_is_same_server_and_owner_scoped(harness: OpenShareHarness):
+    other_folder = create_folder(harness, "Other", owner=OTHER_OWNER)
+
+    wrong_server = harness.client.post(
+        "/shares/import", headers=harness.owner_headers(),
+        data={"url": f"https://evil.example/f/{other_folder}"},
+    )
+    wrong_owner = harness.client.post(
+        "/shares/import", headers=harness.owner_headers(),
+        data={"url": f"https://share.example.test/f/{other_folder}"},
+    )
+    malformed = harness.client.post(
+        "/shares/import", headers=harness.owner_headers(), data={"url": "https://share.example.test/raw/file"}
+    )
+
+    assert wrong_server.status_code == 400
+    assert wrong_owner.status_code == 404
+    assert malformed.status_code == 400
+
+
 def test_edit_folder_is_owner_scoped_and_validates_return_target(harness: OpenShareHarness):
     folder_id = create_folder(harness, "Private")
     payload = {"name": "Changed", "color": "#112233", "icon": "📁", "stay": "parent"}

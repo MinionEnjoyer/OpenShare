@@ -59,6 +59,8 @@ def test_logged_in_home_renders_gallery(monkeypatch, harness: OpenShareHarness):
     assert "OpenShareLoading.navigateWithBusy" in response.text
     assert f"OpenShare v{main.APP_VERSION}" in response.text
     assert "Sign in" not in response.text
+    assert response.text.index('id="dropzone"') < response.text.index('id="folder-workspace"')
+    assert '<footer class="app-version"' in response.text
 
 
 def test_health_reports_the_canonical_version(harness: OpenShareHarness):
@@ -76,6 +78,9 @@ def test_active_folder_orbit_is_concentric_and_respects_reduced_motion():
     assert "background:conic-gradient(" in stylesheet
     assert "@keyframes folder-orbit-spin { to { transform: rotate(1turn); } }" in stylesheet
     assert ".active-folder-orbit::before { animation: none; }" in stylesheet
+    assert "@keyframes oc-orbit-glow" in stylesheet
+    assert ".oc-spinner::before { animation:oc-spin 1.15s linear infinite,oc-orbit-glow" in stylesheet
+    assert ".app-version { display:flex; align-items:center; justify-content:center; width:100%" in stylesheet
 
 
 @pytest.mark.integration

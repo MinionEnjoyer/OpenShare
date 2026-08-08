@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS share_links (
     id          TEXT PRIMARY KEY,
     folder_id   TEXT NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
     owner_sub   TEXT NOT NULL,
+    legacy_path TEXT,
     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     revoked_at  TIMESTAMP
 );
@@ -96,6 +97,14 @@ async def init():
             await db.execute(
                 "ALTER TABLE folders ADD COLUMN preview_media_id TEXT REFERENCES media(id) ON DELETE SET NULL"
             )
+        async with db.execute("PRAGMA table_info(share_links)") as cur:
+            share_cols = {r[1] for r in await cur.fetchall()}
+        if "legacy_path" not in share_cols:
+            await db.execute("ALTER TABLE share_links ADD COLUMN legacy_path TEXT")
+        await db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_share_links_owner_legacy "
+            "ON share_links (owner_sub, legacy_path)"
+        )
         async with db.execute("PRAGMA table_info(media)") as cur:
             cols = {r[1] for r in await cur.fetchall()}
         if "folder_id" not in cols:
@@ -347,10 +356,22 @@ async def folder_list_children(owner_sub: str, parent_id: str | None):
     async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         if parent_id is None:
-            sql = "SELECT * FROM folders WHERE owner_sub=? AND parent_id IS NULL ORDER BY name"
+            sql = (
+                "SELECT f.*, "
+                "(SELECT COUNT(*) FROM folders child WHERE child.parent_id=f.id) AS child_count, "
+                "(SELECT COUNT(*) FROM media item WHERE item.folder_id=f.id "
+                "AND item.source_app='personal') AS item_count "
+                "FROM folders f WHERE f.owner_sub=? AND f.parent_id IS NULL ORDER BY f.name"
+            )
             args: tuple = (owner_sub,)
         else:
-            sql = "SELECT * FROM folders WHERE owner_sub=? AND parent_id=? ORDER BY name"
+            sql = (
+                "SELECT f.*, "
+                "(SELECT COUNT(*) FROM folders child WHERE child.parent_id=f.id) AS child_count, "
+                "(SELECT COUNT(*) FROM media item WHERE item.folder_id=f.id "
+                "AND item.source_app='personal') AS item_count "
+                "FROM folders f WHERE f.owner_sub=? AND f.parent_id=? ORDER BY f.name"
+            )
             args = (owner_sub, parent_id)
         async with db.execute(sql, args) as cur:
             return [dict(r) for r in await cur.fetchall()]
@@ -475,8 +496,11 @@ async def folder_list_all_for_owner(owner_sub: str):
     async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT id, name, parent_id, color, icon, preview_mode, preview_media_id "
-            "FROM folders WHERE owner_sub=? ORDER BY name",
+            "SELECT f.id, f.name, f.parent_id, f.color, f.icon, f.preview_mode, f.preview_media_id, "
+            "(SELECT COUNT(*) FROM folders child WHERE child.parent_id=f.id) AS child_count, "
+            "(SELECT COUNT(*) FROM media item WHERE item.folder_id=f.id "
+            "AND item.source_app='personal') AS item_count "
+            "FROM folders f WHERE f.owner_sub=? ORDER BY f.name",
             (owner_sub,),
         ) as cur:
             return [dict(r) for r in await cur.fetchall()]
@@ -519,6 +543,37 @@ async def share_link_create(link_id: str, folder_id: str, owner_sub: str) -> boo
         return True
 
 
+async def share_link_import(link_id: str, folder_id: str, owner_sub: str, legacy_path: str):
+    """Record an owned legacy /f link without changing the address people already have."""
+    async with connect_db() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT 1 FROM folders WHERE id=? AND owner_sub=?", (folder_id, owner_sub)
+        ) as cur:
+            if not await cur.fetchone():
+                return None
+        await db.execute(
+            "INSERT OR IGNORE INTO share_links (id, folder_id, owner_sub, legacy_path) "
+            "VALUES (?, ?, ?, ?)",
+            (link_id, folder_id, owner_sub, legacy_path),
+        )
+        # Re-adding a previously removed legacy link should restore it to the
+        # list instead of returning an entry that still appears revoked.
+        await db.execute(
+            "UPDATE share_links SET revoked_at=NULL "
+            "WHERE owner_sub=? AND legacy_path=?",
+            (owner_sub, legacy_path),
+        )
+        await db.commit()
+        async with db.execute(
+            "SELECT id, folder_id, owner_sub, legacy_path, created_at, revoked_at "
+            "FROM share_links WHERE owner_sub=? AND legacy_path=?",
+            (owner_sub, legacy_path),
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+
 async def share_link_get(link_id: str):
     async with connect_db() as db:
         db.row_factory = aiosqlite.Row
@@ -533,7 +588,8 @@ async def share_link_list(owner_sub: str):
     async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT s.id, s.folder_id, s.created_at, s.revoked_at, f.name AS folder_name "
+            "SELECT s.id, s.folder_id, s.legacy_path, s.created_at, s.revoked_at, "
+            "f.name AS folder_name "
             "FROM share_links s JOIN folders f ON f.id=s.folder_id "
             "WHERE s.owner_sub=? ORDER BY s.created_at DESC, s.id DESC",
             (owner_sub,),
@@ -564,7 +620,13 @@ async def list_companion_media(owner_sub: str, source_app: str, limit: int = 200
     async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT * FROM media WHERE owner_sub=? AND source_app=? "
+            "WITH companion AS ("
+            "SELECT media.*, "
+            "COUNT(*) OVER (PARTITION BY COALESCE(sha256, id)) AS duplicate_count, "
+            "ROW_NUMBER() OVER (PARTITION BY COALESCE(sha256, id) "
+            "ORDER BY uploaded_at DESC, id DESC) AS duplicate_rank "
+            "FROM media WHERE owner_sub=? AND source_app=?"
+            ") SELECT * FROM companion WHERE duplicate_rank=1 "
             "ORDER BY uploaded_at DESC LIMIT ?",
             (owner_sub, source_app, limit),
         ) as cur:

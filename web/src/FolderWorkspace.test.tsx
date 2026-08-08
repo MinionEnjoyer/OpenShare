@@ -3,14 +3,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FolderWorkspace } from './FolderWorkspace';
 import type { FolderWorkspaceData } from './types';
 
-const design = { id: 'design', parent_id: null, name: 'Design', color: '#3298ff', icon: '🎨' };
-const drafts = { id: 'drafts', parent_id: 'design', name: 'Drafts', color: '#18d5ad', icon: '📝' };
+const design = { id: 'design', parent_id: null, name: 'Design', color: '#3298ff', icon: '🎨', child_count: 1, item_count: 4 };
+const drafts = { id: 'drafts', parent_id: 'design', name: 'Drafts', color: '#18d5ad', icon: '📝', child_count: 0, item_count: 2 };
 const data: FolderWorkspaceData = {
   currentFolder: design,
   subfolders: [drafts],
   allFolders: [design, drafts],
   publicUrl: 'https://share.example.test',
-  appVersion: '0.2.31',
+  appVersion: '0.2.32',
   openChatConnected: true,
 };
 
@@ -19,6 +19,8 @@ afterEach(() => {
   window.localStorage.clear();
   delete document.documentElement.dataset.theme;
   delete document.documentElement.dataset.themePreference;
+  delete document.documentElement.dataset.folderDensity;
+  delete document.documentElement.dataset.motion;
 });
 
 describe('React folder workspace', () => {
@@ -38,8 +40,9 @@ describe('React folder workspace', () => {
     render(<FolderWorkspace data={data} />);
     fireEvent.click(screen.getByRole('button', { name: /Browse library/ }));
 
-    const dialog = screen.getByRole('dialog', { name: 'Library tree' });
+    const dialog = screen.getByRole('dialog', { name: 'Browse library' });
     expect(dialog).toHaveClass('os-tree-dialog');
+    expect(within(dialog).getByRole('complementary', { name: 'Library summary' })).toBeInTheDocument();
     expect(within(dialog).getByRole('tree')).toBeInTheDocument();
     expect(within(dialog).getByRole('treeitem', { name: /Design/ })).toHaveAttribute('aria-current', 'page');
 
@@ -86,7 +89,33 @@ describe('React folder workspace', () => {
 
     expect(document.documentElement.dataset.theme).toBe('dark');
     expect(window.localStorage.getItem('openshare-theme')).toBe('dark');
-    expect(screen.getByText('v0.2.31')).toBeInTheDocument();
+    expect(screen.getByText('OpenShare v0.2.32')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('radio', { name: /Compact/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Reduce animation/ }));
+    expect(document.documentElement.dataset.folderDensity).toBe('compact');
+    expect(document.documentElement.dataset.motion).toBe('reduced');
+    expect(window.localStorage.getItem('openshare-preferences')).toContain('compact');
+  });
+
+  it('imports an existing folder link into My shared links', async () => {
+    const legacy = {
+      id: 'legacy-link', folderId: 'design', folderName: 'Design',
+      url: 'https://share.example.test/f/design', createdAt: '2026-08-08T08:00:00Z',
+      revokedAt: null, legacy: true,
+    };
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(legacy), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([legacy]), { status: 200 }));
+    render(<FolderWorkspace data={data} />);
+    fireEvent.click(screen.getByRole('button', { name: /Shared links/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add existing link' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Existing folder link' }), { target: { value: legacy.url } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add to list' }));
+
+    expect(await screen.findByText('Existing link')).toBeInTheDocument();
+    expect(screen.getByText(legacy.url)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/shares/import', expect.objectContaining({ method: 'POST', credentials: 'same-origin' }));
   });
 
   it('keeps connected OpenChat assets beside shared links, not in the folder tree', async () => {
@@ -94,13 +123,14 @@ describe('React folder workspace', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify([{
         id: 'chat-asset', name: 'sticker.png', mediaType: 'image', viewUrl: '/i/chat-asset',
-        thumbUrl: '/thumb/chat-asset', uploadedAt: '2026-08-07T08:00:00Z', sizeBytes: 32,
+        thumbUrl: '/thumb/chat-asset', uploadedAt: '2026-08-07T08:00:00Z', sizeBytes: 32, duplicateCount: 3,
       }]), { status: 200 }));
     render(<FolderWorkspace data={data} />);
     fireEvent.click(screen.getByRole('button', { name: /Shared links/ }));
     fireEvent.click(screen.getByRole('tab', { name: 'OpenChat content' }));
 
     expect(await screen.findByRole('link', { name: /sticker\.png/ })).toHaveAttribute('href', '/i/chat-asset');
+    expect(screen.getByText(/3 identical uploads grouped/)).toBeInTheDocument();
     expect(screen.queryByRole('treeitem', { name: /OpenChat|Chat/ })).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenLastCalledWith('/api/companion-content?app_name=openchat', { credentials: 'same-origin' });
   });

@@ -23,17 +23,6 @@
 </section>
 {% endif %}
 
-<div id="folder-workspace"></div>
-<script id="folder-workspace-data" type="application/json">{{ {
-  'currentFolder': folder,
-  'subfolders': subfolders,
-  'allFolders': all_folders,
-  'publicUrl': public_url,
-  'appVersion': app_version,
-  'openChatConnected': share_api_enabled,
-}|tojson }}</script>
-<noscript><p class="page-error">Folder management requires JavaScript. Uploads and existing share links remain available.</p></noscript>
-
 <section class="upload-zone" id="dropzone">
   <div class="upload-main">
     <div class="upload-icon" aria-hidden="true">⬆</div>
@@ -53,6 +42,17 @@
     <span id="progress-text"></span>
   </div>
 </section>
+
+<div id="folder-workspace"></div>
+<script id="folder-workspace-data" type="application/json">{{ {
+  'currentFolder': folder,
+  'subfolders': subfolders,
+  'allFolders': all_folders,
+  'publicUrl': public_url,
+  'appVersion': app_version,
+  'openChatConnected': share_api_enabled,
+}|tojson }}</script>
+<noscript><p class="page-error">Folder management requires JavaScript. Uploads and existing share links remain available.</p></noscript>
 
 <div id="selection-bar" class="selection-bar" hidden>
   <span class="sel-count"><span id="sel-count">0</span> selected</span>

@@ -29,7 +29,7 @@ share links — and doubles as the upload/attachment backend for
 FastAPI (Python 3.12) · SQLite · Authlib (OIDC) · Pillow / ffmpeg / poppler / pyrender for
 thumbnails · Jinja2 templates. Ships as a single Docker image.
 
-The current OpenShare release is **0.1.0**. The canonical value lives in [`VERSION`](VERSION), is
+The current OpenShare release is **0.2.0**. The canonical value lives in [`VERSION`](VERSION), is
 shown in the web footer, and is returned by `GET /health` so operators can verify the active build.
 
 ## Quick start
@@ -53,6 +53,8 @@ Everything is environment-driven via `.env` (the one local, gitignored config fi
 | `PUBLIC_URL` | Public base URL (used for OIDC redirect + share links) |
 | `ALLOWED_ORIGINS` | Comma-separated trusted application origins (e.g. your OpenChat URL) |
 | `SHARE_API_KEY` | Shared secret scoped to OpenChat upload and waveform requests; other owner operations always require an OpenShare session |
+| `FEDERATION_ENABLED` | Opt in to private, signed attachment replication; disabled by default |
+| `FEDERATION_NODE_ID` / `FEDERATION_SHARED_SECRET` / `FEDERATION_PEERS` | Unique node identity, 32+ character cluster key, and explicit JSON list of HTTPS OpenShare peers |
 | `STORAGE_ROOT` | In-container path for files/thumbnails (matches the compose mount) |
 | `STORAGE_PATH` | Host path bind-mounted for storage — point at a big disk or NAS |
 | `PORT` | Host port to expose |
@@ -88,6 +90,14 @@ OpenShare — it simply hides file/image uploads.
 - File metadata (owners, folders, hashes) lives in a small SQLite DB on the `openshare_data` volume.
 
 Both persist across rebuilds; neither is ever committed to git.
+
+## Trusted mirror cluster
+
+OpenShare can mirror normal uploaded assets across the OpenShare nodes backing a private OpenChat reliability cluster. There is no public discovery or global network: replication starts only when `FEDERATION_ENABLED=1`, every request must come from an explicitly configured HTTPS peer, and payloads are authenticated with `FEDERATION_SHARED_SECRET`.
+
+Transfers are content-digest verified and idempotent. Each outgoing asset is written to the SQLite event ledger and one durable delivery row per peer before transmission; failures retry with bounded backoff. Configure a full mesh so every node lists every other node. The associated OpenChat nodes use the same configuration pattern described in OpenChat's `docs/TRUSTED_MIRROR_CLUSTER.md`.
+
+The current asset path covers ordinary files used for OpenChat attachments, avatars, stickers, and soundboard entries. Multi-file 3D bundles remain local because they are directory trees rather than a single content-addressed object.
 
 ## CI-gated automatic deployment
 

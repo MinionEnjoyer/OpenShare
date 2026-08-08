@@ -21,7 +21,7 @@ test-cov:
 	$(PYTHON) -m pytest --cov --cov-report=term-missing --cov-report=xml
 
 lint:
-	$(PYTHON) -m ruff check main.py auth.py db.py thumbs.py scripts tests
+	$(PYTHON) -m ruff check main.py auth.py db.py mirror.py thumbs.py scripts tests
 
 audit:
 	$(PYTHON) -m pip_audit -r requirements.txt

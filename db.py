@@ -44,6 +44,26 @@ CREATE TABLE IF NOT EXISTS folders (
     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_folders_owner_parent ON folders (owner_sub, parent_id);
+
+CREATE TABLE IF NOT EXISTS mirror_events (
+    id          TEXT PRIMARY KEY,
+    origin_node TEXT NOT NULL,
+    payload     TEXT NOT NULL,
+    file_path   TEXT,
+    digest      TEXT NOT NULL,
+    applied_at  TIMESTAMP,
+    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS mirror_deliveries (
+    event_id       TEXT NOT NULL REFERENCES mirror_events(id) ON DELETE CASCADE,
+    peer_node      TEXT NOT NULL,
+    attempts       INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    delivered_at  TIMESTAMP,
+    last_error    TEXT,
+    PRIMARY KEY (event_id, peer_node)
+);
+CREATE INDEX IF NOT EXISTS idx_mirror_delivery_pending ON mirror_deliveries (delivered_at, next_attempt_at);
 """
 
 
@@ -430,6 +450,79 @@ async def list_media_missing_thumbs(media_type: str | None = None):
 async def update_thumb_path(media_id: str, thumb_path: str | None):
     async with connect_db() as db:
         await db.execute("UPDATE media SET thumb_path=? WHERE id=?", (thumb_path, media_id))
+        await db.commit()
+
+
+# ---------- trusted mirror cluster ----------
+
+async def mirror_enqueue(event_id: str, origin_node: str, payload: str, file_path: str, digest: str, peers: list[str]):
+    async with connect_db() as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO mirror_events (id, origin_node, payload, file_path, digest, applied_at) "
+            "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            (event_id, origin_node, payload, file_path, digest),
+        )
+        await db.executemany(
+            "INSERT OR IGNORE INTO mirror_deliveries (event_id, peer_node) VALUES (?, ?)",
+            [(event_id, peer) for peer in peers],
+        )
+        await db.commit()
+
+
+async def mirror_pending(limit: int = 20):
+    async with connect_db() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT d.*, e.origin_node, e.payload, e.file_path, e.digest "
+            "FROM mirror_deliveries d JOIN mirror_events e ON e.id=d.event_id "
+            "WHERE d.delivered_at IS NULL AND d.next_attempt_at <= CURRENT_TIMESTAMP "
+            "ORDER BY d.next_attempt_at LIMIT ?",
+            (limit,),
+        ) as cur:
+            return [dict(row) for row in await cur.fetchall()]
+
+
+async def mirror_pending_count() -> int:
+    async with connect_db() as db, db.execute(
+        "SELECT COUNT(*) FROM mirror_deliveries WHERE delivered_at IS NULL"
+    ) as cur:
+        row = await cur.fetchone()
+        return int(row[0]) if row else 0
+
+
+async def mirror_mark_delivery(event_id: str, peer_node: str, error: str | None = None):
+    async with connect_db() as db:
+        if error is None:
+            await db.execute(
+                "UPDATE mirror_deliveries SET delivered_at=CURRENT_TIMESTAMP, last_error=NULL "
+                "WHERE event_id=? AND peer_node=?",
+                (event_id, peer_node),
+            )
+        else:
+            await db.execute(
+                "UPDATE mirror_deliveries SET attempts=attempts+1, "
+                "next_attempt_at=datetime('now', '+' || MIN(300, (1 << MIN(attempts+1, 8))) || ' seconds'), "
+                "last_error=? WHERE event_id=? AND peer_node=?",
+                (error[:1000], event_id, peer_node),
+            )
+        await db.commit()
+
+
+async def mirror_event_seen(event_id: str) -> bool:
+    async with connect_db() as db, db.execute(
+        "SELECT 1 FROM mirror_events WHERE id=? AND applied_at IS NOT NULL", (event_id,)
+    ) as cur:
+        return await cur.fetchone() is not None
+
+
+async def mirror_record_received(event_id: str, origin_node: str, payload: str, digest: str):
+    async with connect_db() as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO mirror_events "
+            "(id, origin_node, payload, file_path, digest, applied_at, created_at) "
+            "VALUES (?, ?, ?, NULL, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+            (event_id, origin_node, payload, digest),
+        )
         await db.commit()
 
 

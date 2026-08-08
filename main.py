@@ -21,6 +21,7 @@ from authlib.integrations.base_client import OAuthError
 import auth
 import db
 import thumbs
+import mirror
 
 STORAGE_ROOT = Path(os.environ.get("STORAGE_ROOT", "/srv/gallery"))
 FILES_DIR = STORAGE_ROOT / "files"
@@ -204,13 +205,15 @@ async def lifespan(_app: FastAPI):
     THUMBS_DIR.mkdir(parents=True, exist_ok=True)
     await db.init()
     backfill = asyncio.create_task(_backfill_model_thumbs())
+    mirror_delivery = asyncio.create_task(mirror.delivery_loop()) if mirror.CONFIG.enabled else None
     try:
         yield
     finally:
-        if not backfill.done():
-            backfill.cancel()
-            with suppress(asyncio.CancelledError):
-                await backfill
+        for task in (backfill, mirror_delivery):
+            if task is not None and not task.done():
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
 
 
 app = FastAPI(lifespan=lifespan)
@@ -233,7 +236,8 @@ async def security_boundary(request: Request, call_next):
     if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
         authorization = request.headers.get("authorization", "")
         service_upload = request.url.path in {"/upload", "/waveform", "/api/assets"} and authorization.startswith("Bearer ")
-        if not service_upload:
+        mirror_transfer = request.url.path == "/mirror/v1/assets" and bool(request.headers.get("x-openshare-node"))
+        if not service_upload and not mirror_transfer:
             origin = request.headers.get("origin", "")
             if origin not in trusted_origins:
                 return JSONResponse({"detail": "untrusted request origin"}, status_code=403)
@@ -257,6 +261,48 @@ templates.env.globals["app_version"] = APP_VERSION
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": APP_VERSION}
+
+
+@app.get("/mirror/v1/status")
+async def mirror_status():
+    return {
+        "enabled": mirror.CONFIG.enabled,
+        "nodeId": mirror.CONFIG.node_id if mirror.CONFIG.enabled else None,
+        "peers": len(mirror.CONFIG.peers),
+        "pending": await db.mirror_pending_count() if mirror.CONFIG.enabled else 0,
+    }
+
+
+@app.post("/mirror/v1/assets")
+async def receive_mirrored_asset(
+    request: Request,
+    metadata: str = Form(...),
+    file: UploadFile = File(...),
+):
+    try:
+        envelope = json.loads(metadata)
+        mirror.validate_envelope(
+            envelope,
+            node_id=request.headers.get("x-openshare-node", ""),
+            timestamp=request.headers.get("x-openshare-timestamp", ""),
+            signature=request.headers.get("x-openshare-signature", ""),
+        )
+    except PermissionError as exc:
+        raise HTTPException(401, detail=str(exc)) from exc
+    except (ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(400, detail=str(exc)) from exc
+    FILES_DIR.mkdir(parents=True, exist_ok=True)
+    temporary = FILES_DIR / f".mirror-{new_id()}.part"
+    try:
+        with temporary.open("wb") as output:
+            while chunk := await file.read(1024 * 1024):
+                await asyncio.to_thread(output.write, chunk)
+        applied = await mirror.apply_received_asset(envelope, temporary, FILES_DIR)
+        return {"accepted": True, "duplicate": not applied}
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc)) from exc
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 async def _backfill_model_thumbs():
@@ -557,6 +603,11 @@ def _extract_zip_bundle(zip_path: Path, mid: str) -> tuple[Path, int, str] | Non
         return None
 
 
+async def _persist_media(item: dict, source: str) -> None:
+    await db.insert_media(item)
+    await mirror.queue_media(item, source)
+
+
 @app.post("/upload")
 async def upload(
     request: Request,
@@ -592,7 +643,7 @@ async def upload(
             if not thumb_path.exists():
                 thumb_path = None
             _, primary_mime = classify_upload(primary.filename or "", primary.content_type or "")
-            await db.insert_media({
+            item = {
                 "id": mid, "owner_sub": user["sub"], "owner_username": user["username"],
                 "media_type": "model", "original_name": primary.filename or "model",
                 "storage_path": str(primary_path),
@@ -600,7 +651,8 @@ async def upload(
                 "mime_type": primary_mime, "size_bytes": total_size,
                 "width": w, "height": h, "duration_s": None,
                 "folder_id": target_folder,
-            })
+            }
+            await _persist_media(item, source)
             saved.append({"id": mid, "media_type": "model", "bundle": True})
             return JSONResponse({"saved": saved, "rejected": rejected})
         except Exception as e:
@@ -681,7 +733,7 @@ async def upload(
                     pass
                 if not thumb_path.exists():
                     thumb_path = None
-                await db.insert_media({
+                item = {
                     "id": mid, "owner_sub": user["sub"], "owner_username": user["username"],
                     "media_type": "model", "original_name": primary_name,
                     "storage_path": str(primary_path),
@@ -689,7 +741,8 @@ async def upload(
                     "mime_type": "application/octet-stream", "size_bytes": size,
                     "width": w, "height": h, "duration_s": None,
                     "folder_id": target_folder,
-                })
+                }
+                await _persist_media(item, source)
                 saved.append({"id": mid, "media_type": "model", "bundle": True})
                 continue
             # Not a 3D bundle — clean any partial extraction, keep the zip as an archive.
@@ -734,7 +787,7 @@ async def upload(
         if thumb_path is not None and not thumb_path.exists():
             thumb_path = None
 
-        await db.insert_media({
+        item = {
             "id": mid, "owner_sub": user["sub"], "owner_username": user["username"],
             "media_type": media_type, "original_name": f.filename or "untitled",
             "storage_path": str(storage_path),
@@ -742,7 +795,8 @@ async def upload(
             "mime_type": mime, "size_bytes": size,
             "width": w, "height": h, "duration_s": duration,
             "folder_id": target_folder, "sha256": digest, "waveform": waveform_json,
-        })
+        }
+        await _persist_media(item, source)
         saved.append({"id": mid, "media_type": media_type})
 
     return JSONResponse({"saved": saved, "rejected": rejected})

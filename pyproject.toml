@@ -14,7 +14,7 @@ markers = [
 
 [tool.coverage.run]
 branch = true
-source = ["main", "auth", "db"]
+source = ["main", "auth", "db", "mirror"]
 
 [tool.coverage.report]
 fail_under = 70

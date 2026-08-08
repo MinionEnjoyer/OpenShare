@@ -129,7 +129,7 @@ async def queue_media(item: dict, source: str = "", config: MirrorConfig | None 
         key: item.get(key)
         for key in (
             "id", "owner_sub", "owner_username", "media_type", "original_name", "mime_type",
-            "size_bytes", "width", "height", "duration_s", "sha256", "waveform",
+            "size_bytes", "width", "height", "duration_s", "sha256", "waveform", "source_app",
         )
     }
     asset["source"] = source
@@ -172,9 +172,15 @@ async def apply_received_asset(envelope: dict, temporary_file: Path, files_dir: 
         files_dir.mkdir(parents=True, exist_ok=True)
         destination = files_dir / f"{asset['id']}{suffix}"
         await asyncio.to_thread(shutil.move, temporary_file, destination)
-        folder_id = None
-        if asset.get("source") == "chat":
-            folder_id = await db.folder_find_or_create(str(asset["owner_sub"]), "Chat", uuid.uuid4().hex[:22])
+        # Keep companion-owned assets out of the user's personal folder tree on
+        # every mirror node. Older senders only include ``source=chat``;
+        # current senders also provide the explicit logical collection.
+        source_app = str(asset.get("source_app") or (
+            "openchat" if asset.get("source") in {"chat", "openchat", "sticker", "soundboard", "avatar", "attachment"}
+            else "personal"
+        ))
+        if source_app not in {"personal", "openchat"}:
+            source_app = "personal"
         await db.insert_media({
             "id": str(asset["id"]),
             "owner_sub": str(asset["owner_sub"]),
@@ -188,9 +194,10 @@ async def apply_received_asset(envelope: dict, temporary_file: Path, files_dir: 
             "width": asset.get("width"),
             "height": asset.get("height"),
             "duration_s": asset.get("duration_s"),
-            "folder_id": folder_id,
+            "folder_id": None,
             "sha256": digest,
             "waveform": asset.get("waveform"),
+            "source_app": source_app,
         })
     await db.mirror_record_received(
         envelope["id"], envelope["originNodeId"], canonical_json(envelope), digest,

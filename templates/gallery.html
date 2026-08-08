@@ -1,5 +1,8 @@
 {% extends "base.html" %}
-{% from "_folder_editor.html" import appearance_fields, edit_dialog with context %}
+{% block head %}
+<link rel="stylesheet" href="/static/react/assets/folder-workspace.css">
+<script type="module" src="/static/react/assets/folder-workspace.js"></script>
+{% endblock %}
 {% block content %}
 
 <nav class="crumbs">
@@ -18,78 +21,18 @@
     <h1>{{ folder.name }}</h1>
   </div>
 </section>
-<section class="folder-actions">
-  <button class="btn" type="button" onclick="document.getElementById('share-dialog').showModal()">Copy share link</button>
-  <button class="btn folder-edit-action" type="button" data-open-dialog="folder-edit-{{ folder.id }}" hidden>Edit current folder</button>
-  <details class="inline-form" name="gallery-menu">
-    <summary class="btn">Move folder</summary>
-    <form action="/folders/{{ folder.id }}/move" method="post" data-loading="Moving folder…">
-      <select name="parent_id">
-        <option value="">(root)</option>
-        {% for f in all_folders if f.id != folder.id %}
-          <option value="{{ f.id }}" {% if folder.parent_id == f.id %}selected{% endif %}>{{ f.name }}</option>
-        {% endfor %}
-      </select>
-      <button class="btn primary" type="submit">Move</button>
-    </form>
-  </details>
-  <form action="/folders/{{ folder.id }}/delete" method="post" data-loading="Deleting folder…" onsubmit="return confirm('Delete this folder? Its contents will move up to the parent.')">
-    <button class="btn danger" type="submit">Delete folder</button>
-  </form>
-</section>
-
-<dialog id="share-dialog">
-  <h3>Share this folder</h3>
-  <p class="muted">Anyone with this link can view the folder's contents.</p>
-  <input type="text" readonly id="share-url" value="{{ public_url }}/f/{{ folder.id }}">
-  <div class="dialog-actions">
-    <button class="btn primary" onclick="navigator.clipboard.writeText(document.getElementById('share-url').value); this.textContent='Copied!'">Copy</button>
-    <button class="btn" onclick="document.getElementById('share-dialog').close()">Close</button>
-  </div>
-</dialog>
-{{ edit_dialog(folder, 'self') }}
 {% endif %}
 
-{% if all_folders %}
-<div class="folder-edit-toolbar">
-  <button class="btn" type="button" data-open-dialog="folder-tree-dialog">Browse folders</button>
-  <button class="btn" type="button" id="folder-edit-toggle" aria-pressed="false">
-    <span data-edit-label>Edit folders</span>
-  </button>
-  <span class="muted folder-edit-hint">Rename folders or change their color and icon.</span>
-</div>
-<dialog class="folder-tree-dialog" id="folder-tree-dialog">
-  <div class="folder-tree-heading">
-    <div><span class="eyebrow">Library</span><h3>Browse folders</h3><p class="muted">{{ all_folders|length }} folder{{ '' if all_folders|length == 1 else 's' }}</p></div>
-    <button class="dialog-close" type="button" data-dialog-close aria-label="Close folder browser">×</button>
-  </div>
-  <label class="field-label" for="folder-tree-search">Find a folder</label>
-  <input id="folder-tree-search" type="search" placeholder="Search folders" autocomplete="off" data-folder-tree-search>
-  <nav class="folder-tree" aria-label="Folder directory" data-folder-tree data-current-folder="{{ folder.id if folder else '' }}"></nav>
-  <script type="application/json" data-folder-tree-source>{{ all_folders|tojson }}</script>
-</dialog>
-{% endif %}
-
-<details class="folder-create-panel" name="gallery-menu">
-  <summary class="btn folder-create-trigger">+ New folder</summary>
-  <form action="/folders" method="post" class="folder-create-form" data-folder-form data-loading="Creating folder…" data-async-form>
-    <input type="hidden" name="parent_id" value="{{ folder.id if folder else '' }}">
-    <div class="folder-create-heading">
-      <span class="folder-create-preview" style="--folder-color: #4f9cf9" data-folder-preview aria-hidden="true">📁</span>
-      <div>
-        <span class="eyebrow">New folder</span>
-        <strong>{% if folder %}Inside {{ folder.name }}{% else %}At the library root{% endif %}</strong>
-      </div>
-    </div>
-    <label class="field-label" for="folder-name">Folder name</label>
-    <input id="folder-name" type="text" name="name" placeholder="Folder name" maxlength="120" required>
-    {{ appearance_fields('create', '#4f9cf9', '📁') }}
-    <div class="folder-create-actions">
-      <button class="btn" type="button" onclick="this.closest('details').removeAttribute('open')">Cancel</button>
-      <button class="btn primary" type="submit">Create folder</button>
-    </div>
-  </form>
-</details>
+<div id="folder-workspace"></div>
+<script id="folder-workspace-data" type="application/json">{{ {
+  'currentFolder': folder,
+  'subfolders': subfolders,
+  'allFolders': all_folders,
+  'publicUrl': public_url,
+  'appVersion': app_version,
+  'openChatConnected': share_api_enabled,
+}|tojson }}</script>
+<noscript><p class="page-error">Folder management requires JavaScript. Uploads and existing share links remain available.</p></noscript>
 
 <section class="upload-zone" id="dropzone">
   <div class="upload-main">
@@ -125,32 +68,6 @@
   <button class="btn danger" id="sel-delete" type="button">Delete</button>
   <button class="btn" id="sel-clear" type="button">Clear</button>
 </div>
-
-{% if subfolders %}
-<section class="folder-grid">
-  {% for sf in subfolders %}
-  <article class="folder-card" style="--folder-color: {{ sf.color }}">
-    <a class="folder-tile droptarget" href="/folder/{{ sf.id }}" data-folder-id="{{ sf.id }}">
-      <div class="folder-icon">{{ sf.icon }}</div>
-      <span class="folder-name">{{ sf.name }}</span>
-    </a>
-    <button class="folder-tile-edit" type="button" data-open-dialog="folder-edit-{{ sf.id }}" aria-label="Edit {{ sf.name }}" hidden>Edit</button>
-    {{ edit_dialog(sf, 'parent') }}
-  </article>
-  {% endfor %}
-  {% if folder and folder.parent_id is not none %}
-  <a class="folder-tile droptarget up-tile" href="/folder/{{ folder.parent_id }}" data-folder-id="{{ folder.parent_id }}">
-    <div class="folder-icon">⤴</div>
-    <span class="folder-name">Up one</span>
-  </a>
-  {% elif folder %}
-  <a class="folder-tile droptarget up-tile" href="/" data-folder-id="">
-    <div class="folder-icon">⤴</div>
-    <span class="folder-name">Up to root</span>
-  </a>
-  {% endif %}
-</section>
-{% endif %}
 
 <section class="grid" id="media-grid">
   {% for it in items %}
@@ -365,32 +282,35 @@ for (const wrap of grid.querySelectorAll('.tile-wrap')) {
   tile.addEventListener('dragend', () => document.body.classList.remove('dragging-items'));
 }
 
-for (const target of document.querySelectorAll('.droptarget')) {
-  target.addEventListener('dragover', ev => {
-    if (ev.dataTransfer.types.includes('application/x-gallery-ids')) {
-      ev.preventDefault(); ev.dataTransfer.dropEffect = 'move';
-      target.classList.add('dropping');
-    }
-  });
-  target.addEventListener('dragleave', () => target.classList.remove('dropping'));
-  target.addEventListener('drop', async ev => {
-    target.classList.remove('dropping');
-    const raw = ev.dataTransfer.getData('application/x-gallery-ids');
-    if (!raw) return;
-    ev.preventDefault();
-    const ids = JSON.parse(raw);
-    OpenShareLoading.pageBusy(`Moving ${ids.length} item(s)…`);
-    try {
-      const r = await fetch('/bulk/move', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ ids, folder_id: target.dataset.folderId || null }),
-      });
-      if (r.ok) location.reload(); else throw new Error(`HTTP ${r.status}`);
-    } catch (e) {
-      OpenShareLoading.clearPageBusy();
-      alert(`Move failed: ${e}`);
-    }
-  });
-}
+// React mounts folder targets after this inline controller is parsed, so use
+// delegation instead of capturing only the initial server-rendered elements.
+document.addEventListener('dragover', ev => {
+  const target = ev.target.closest?.('.droptarget');
+  if (target && ev.dataTransfer.types.includes('application/x-gallery-ids')) {
+    ev.preventDefault(); ev.dataTransfer.dropEffect = 'move';
+    target.classList.add('dropping');
+  }
+});
+document.addEventListener('dragleave', ev => ev.target.closest?.('.droptarget')?.classList.remove('dropping'));
+document.addEventListener('drop', async ev => {
+  const target = ev.target.closest?.('.droptarget');
+  if (!target) return;
+  target.classList.remove('dropping');
+  const raw = ev.dataTransfer.getData('application/x-gallery-ids');
+  if (!raw) return;
+  ev.preventDefault();
+  const ids = JSON.parse(raw);
+  OpenShareLoading.pageBusy(`Moving ${ids.length} item(s)…`);
+  try {
+    const r = await fetch('/bulk/move', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ ids, folder_id: target.dataset.folderId || null }),
+    });
+    if (r.ok) location.reload(); else throw new Error(`HTTP ${r.status}`);
+  } catch (e) {
+    OpenShareLoading.clearPageBusy();
+    alert(`Move failed: ${e}`);
+  }
+});
 </script>
 {% endblock %}

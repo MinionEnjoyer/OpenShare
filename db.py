@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS media (
     width           INTEGER,
     height          INTEGER,
     duration_s      REAL,
+    source_app      TEXT NOT NULL DEFAULT 'personal',
     uploaded_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_media_owner_time ON media (owner_sub, uploaded_at DESC);
@@ -41,9 +42,20 @@ CREATE TABLE IF NOT EXISTS folders (
     name        TEXT NOT NULL,
     color       TEXT NOT NULL DEFAULT '#4f9cf9',
     icon        TEXT NOT NULL DEFAULT '📁',
+    preview_mode TEXT NOT NULL DEFAULT 'icon',
+    preview_media_id TEXT REFERENCES media(id) ON DELETE SET NULL,
     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_folders_owner_parent ON folders (owner_sub, parent_id);
+
+CREATE TABLE IF NOT EXISTS share_links (
+    id          TEXT PRIMARY KEY,
+    folder_id   TEXT NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+    owner_sub   TEXT NOT NULL,
+    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    revoked_at  TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_share_links_owner_created ON share_links (owner_sub, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS mirror_events (
     id          TEXT PRIMARY KEY,
@@ -78,6 +90,12 @@ async def init():
             await db.execute("ALTER TABLE folders ADD COLUMN color TEXT NOT NULL DEFAULT '#4f9cf9'")
         if "icon" not in folder_cols:
             await db.execute("ALTER TABLE folders ADD COLUMN icon TEXT NOT NULL DEFAULT '📁'")
+        if "preview_mode" not in folder_cols:
+            await db.execute("ALTER TABLE folders ADD COLUMN preview_mode TEXT NOT NULL DEFAULT 'icon'")
+        if "preview_media_id" not in folder_cols:
+            await db.execute(
+                "ALTER TABLE folders ADD COLUMN preview_media_id TEXT REFERENCES media(id) ON DELETE SET NULL"
+            )
         async with db.execute("PRAGMA table_info(media)") as cur:
             cols = {r[1] for r in await cur.fetchall()}
         if "folder_id" not in cols:
@@ -141,6 +159,25 @@ async def init():
         if "waveform" not in cols3:
             await db.execute("ALTER TABLE media ADD COLUMN waveform TEXT")
 
+        # Companion uploads live in a separate logical collection instead of a
+        # user-visible magic folder. Migrate the folder created by older builds
+        # only when this column is first introduced.
+        async with db.execute("PRAGMA table_info(media)") as cur:
+            cols4 = {r[1] for r in await cur.fetchall()}
+        if "source_app" not in cols4:
+            await db.execute(
+                "ALTER TABLE media ADD COLUMN source_app TEXT NOT NULL DEFAULT 'personal'"
+            )
+            await db.execute(
+                "UPDATE media SET source_app='openchat', folder_id=NULL WHERE folder_id IN ("
+                "SELECT id FROM folders WHERE parent_id IS NULL AND name='Chat')"
+            )
+            await db.execute(
+                "DELETE FROM folders WHERE parent_id IS NULL AND name='Chat' "
+                "AND NOT EXISTS (SELECT 1 FROM media WHERE media.folder_id=folders.id) "
+                "AND NOT EXISTS (SELECT 1 FROM folders child WHERE child.parent_id=folders.id)"
+            )
+
         await db.commit()
 
 
@@ -154,36 +191,18 @@ async def insert_media(item: dict):
         await db.commit()
 
 
-async def find_media_by_hash(owner_sub: str, sha256: str):
+async def find_media_by_hash(owner_sub: str, sha256: str, source_app: str = "personal"):
     """Return an existing media row with the same owner + content hash, for de-duplication."""
     if not sha256:
         return None
     async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT * FROM media WHERE owner_sub=? AND sha256=? LIMIT 1", (owner_sub, sha256)
+            "SELECT * FROM media WHERE owner_sub=? AND sha256=? AND source_app=? LIMIT 1",
+            (owner_sub, sha256, source_app),
         ) as cur:
             row = await cur.fetchone()
             return dict(row) if row else None
-
-
-async def folder_find_or_create(owner_sub: str, name: str, fid_if_new: str) -> str:
-    """Find a top-level folder by name for this owner, or create it. Returns the folder id."""
-    async with connect_db() as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT id FROM folders WHERE owner_sub=? AND parent_id IS NULL AND name=? LIMIT 1",
-            (owner_sub, name),
-        ) as cur:
-            row = await cur.fetchone()
-        if row:
-            return row["id"]
-        await db.execute(
-            "INSERT INTO folders (id, owner_sub, parent_id, name) VALUES (?, ?, NULL, ?)",
-            (fid_if_new, owner_sub, name),
-        )
-        await db.commit()
-        return fid_if_new
 
 
 async def get_media(media_id: str):
@@ -198,10 +217,16 @@ async def list_media_in_folder(owner_sub: str, folder_id: str | None):
     async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         if folder_id is None:
-            sql = "SELECT * FROM media WHERE owner_sub=? AND folder_id IS NULL ORDER BY uploaded_at DESC"
+            sql = (
+                "SELECT * FROM media WHERE owner_sub=? AND folder_id IS NULL "
+                "AND source_app='personal' ORDER BY uploaded_at DESC"
+            )
             args: tuple = (owner_sub,)
         else:
-            sql = "SELECT * FROM media WHERE owner_sub=? AND folder_id=? ORDER BY uploaded_at DESC"
+            sql = (
+                "SELECT * FROM media WHERE owner_sub=? AND folder_id=? "
+                "AND source_app='personal' ORDER BY uploaded_at DESC"
+            )
             args = (owner_sub, folder_id)
         async with db.execute(sql, args) as cur:
             return [dict(r) for r in await cur.fetchall()]
@@ -224,6 +249,11 @@ async def move_media(media_id: str, owner_sub: str, folder_id: str | None) -> bo
             ) as cur:
                 if not await cur.fetchone():
                     return False
+        await db.execute(
+            "UPDATE folders SET preview_mode='icon', preview_media_id=NULL "
+            "WHERE owner_sub=? AND preview_media_id=?",
+            (owner_sub, media_id),
+        )
         cur = await db.execute(
             "UPDATE media SET folder_id=? WHERE id=? AND owner_sub=?",
             (folder_id, media_id, owner_sub),
@@ -243,6 +273,11 @@ async def bulk_move_media(ids: list[str], owner_sub: str, folder_id: str | None)
                 if not await cur.fetchone():
                     return 0
         placeholders = ",".join(["?"] * len(ids))
+        await db.execute(
+            f"UPDATE folders SET preview_mode='icon', preview_media_id=NULL "
+            f"WHERE owner_sub=? AND preview_media_id IN ({placeholders})",
+            (owner_sub, *ids),
+        )
         cur = await db.execute(
             f"UPDATE media SET folder_id=? WHERE owner_sub=? AND id IN ({placeholders})",
             (folder_id, owner_sub, *ids),
@@ -360,11 +395,14 @@ async def folder_update(
     name: str,
     color: str,
     icon: str,
+    preview_mode: str = "icon",
+    preview_media_id: str | None = None,
 ) -> bool:
     async with connect_db() as db:
         cur = await db.execute(
-            "UPDATE folders SET name=?, color=?, icon=? WHERE id=? AND owner_sub=?",
-            (name.strip()[:120], color, icon, folder_id, owner_sub),
+            "UPDATE folders SET name=?, color=?, icon=?, preview_mode=?, preview_media_id=? "
+            "WHERE id=? AND owner_sub=?",
+            (name.strip()[:120], color, icon, preview_mode, preview_media_id, folder_id, owner_sub),
         )
         await db.commit()
         return cur.rowcount > 0
@@ -437,10 +475,81 @@ async def folder_list_all_for_owner(owner_sub: str):
     async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT id, name, parent_id, color, icon FROM folders WHERE owner_sub=? ORDER BY name",
+            "SELECT id, name, parent_id, color, icon, preview_mode, preview_media_id "
+            "FROM folders WHERE owner_sub=? ORDER BY name",
             (owner_sub,),
         ) as cur:
             return [dict(r) for r in await cur.fetchall()]
+
+
+async def folder_preview_images(owner_sub: str, limit_per_folder: int = 8) -> dict[str, list[dict]]:
+    """Return recent image thumbnails grouped by folder, bounded for UI payloads."""
+    async with connect_db() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT id, folder_id, original_name FROM ("
+            "SELECT id, folder_id, original_name, "
+            "ROW_NUMBER() OVER (PARTITION BY folder_id ORDER BY uploaded_at DESC, id) AS row_number "
+            "FROM media WHERE owner_sub=? AND folder_id IS NOT NULL "
+            "AND source_app='personal' AND media_type='image' AND thumb_path IS NOT NULL"
+            ") WHERE row_number <= ? ORDER BY folder_id, row_number",
+            (owner_sub, limit_per_folder),
+        ) as cur:
+            rows = await cur.fetchall()
+    grouped: dict[str, list[dict]] = {}
+    for row in rows:
+        grouped.setdefault(row["folder_id"], []).append(
+            {"id": row["id"], "name": row["original_name"], "thumb_url": f"/thumb/{row['id']}"}
+        )
+    return grouped
+
+
+async def share_link_create(link_id: str, folder_id: str, owner_sub: str) -> bool:
+    async with connect_db() as db:
+        async with db.execute(
+            "SELECT 1 FROM folders WHERE id=? AND owner_sub=?", (folder_id, owner_sub)
+        ) as cur:
+            if not await cur.fetchone():
+                return False
+        await db.execute(
+            "INSERT INTO share_links (id, folder_id, owner_sub) VALUES (?, ?, ?)",
+            (link_id, folder_id, owner_sub),
+        )
+        await db.commit()
+        return True
+
+
+async def share_link_get(link_id: str):
+    async with connect_db() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM share_links WHERE id=? AND revoked_at IS NULL", (link_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+
+async def share_link_list(owner_sub: str):
+    async with connect_db() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT s.id, s.folder_id, s.created_at, s.revoked_at, f.name AS folder_name "
+            "FROM share_links s JOIN folders f ON f.id=s.folder_id "
+            "WHERE s.owner_sub=? ORDER BY s.created_at DESC, s.id DESC",
+            (owner_sub,),
+        ) as cur:
+            return [dict(row) for row in await cur.fetchall()]
+
+
+async def share_link_revoke(link_id: str, owner_sub: str) -> bool:
+    async with connect_db() as db:
+        cur = await db.execute(
+            "UPDATE share_links SET revoked_at=CURRENT_TIMESTAMP "
+            "WHERE id=? AND owner_sub=? AND revoked_at IS NULL",
+            (link_id, owner_sub),
+        )
+        await db.commit()
+        return cur.rowcount > 0
 
 
 async def owner_storage_bytes(owner_sub: str) -> int:
@@ -449,6 +558,17 @@ async def owner_storage_bytes(owner_sub: str) -> int:
     ) as cur:
         row = await cur.fetchone()
         return int(row[0]) if row else 0
+
+
+async def list_companion_media(owner_sub: str, source_app: str, limit: int = 200):
+    async with connect_db() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM media WHERE owner_sub=? AND source_app=? "
+            "ORDER BY uploaded_at DESC LIMIT ?",
+            (owner_sub, source_app, limit),
+        ) as cur:
+            return [dict(row) for row in await cur.fetchall()]
 
 
 async def list_media_missing_thumbs(media_type: str | None = None):
@@ -548,7 +668,8 @@ async def search_media(owner_sub: str, q: str, limit: int = 200):
     async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT * FROM media WHERE owner_sub=? AND original_name LIKE ? COLLATE NOCASE "
+            "SELECT * FROM media WHERE owner_sub=? AND source_app='personal' "
+            "AND original_name LIKE ? COLLATE NOCASE "
             "ORDER BY uploaded_at DESC LIMIT ?",
             (owner_sub, pat, limit),
         ) as cur:
@@ -581,7 +702,9 @@ async def folder_public_view(folder_id: str):
         ) as cur:
             subfolders = [dict(r) for r in await cur.fetchall()]
         async with db.execute(
-            "SELECT * FROM media WHERE folder_id=? ORDER BY uploaded_at DESC", (folder_id,)
+            "SELECT * FROM media WHERE folder_id=? AND source_app='personal' "
+            "ORDER BY uploaded_at DESC",
+            (folder_id,),
         ) as cur:
             items = [dict(r) for r in await cur.fetchall()]
         return {"folder": folder, "subfolders": subfolders, "items": items}

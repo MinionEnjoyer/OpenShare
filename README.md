@@ -21,19 +21,26 @@ If OpenShare is useful to you, project support is available through
 - **Automatic thumbnails** for images, video frames, PDFs, and 3D models; audio uploads get a
   stored **waveform** (audio-level peaks) + duration, served at `/waveform/<id>`.
 - **Content-hash de-duplication** — the same file uploaded twice is stored once.
-- **Folders** with nesting, bulk actions, a full directory-tree browser, custom RGB colors,
-  searchable emoji icons, and a focused edit mode for updating existing folders.
-- **Clean share links** — `/(i|v|au|d|t|m|a)/‹id›` viewer URLs plus `/raw` and `/thumb` for direct bytes.
+- **Folders** with nesting, bulk actions, an accessible keyboard-navigable directory tree,
+  custom RGB colors, the full locally bundled OpenChat emoji picker, a focused edit mode, and
+  optional dynamic or user-selected image covers (icon-only by default).
+- **Recorded share links** — create, copy, review, and revoke links from “My shared links,” with
+  stable `/(i|v|au|d|t|m|a)/‹id›` viewer URLs plus `/raw` and `/thumb` for direct bytes.
+- **Companion collections** — when OpenChat is configured, its attachments, stickers, avatars,
+  and soundboard assets appear in a dedicated OpenChat tab beside “My shared links.” They never
+  create or clutter the user's personal folder tree.
+- **Light, dark, or system appearance** stored per browser in the settings menu.
 - **SSO** via any OpenID Connect provider (Authentik, Keycloak, …); sessions are cookie-based.
 - **Embeds anywhere** — set `ALLOWED_ORIGINS` so a trusted client (e.g. your OpenChat) can upload
   with credentials and render Share links inline.
 
 ## Tech
 
-FastAPI (Python 3.12) · SQLite · Authlib (OIDC) · Pillow / ffmpeg / poppler / pyrender for
-thumbnails · Jinja2 templates. Ships as a single Docker image.
+FastAPI (Python 3.12) · React 18 / TypeScript · SQLite · Authlib (OIDC) · Pillow / ffmpeg /
+poppler / pyrender for thumbnails. React owns the folder-management workspace while FastAPI
+continues to own authentication, storage, viewers, and stable resource URLs. Ships as one image.
 
-The current OpenShare release is **0.2.3**. The canonical value lives in [`VERSION`](VERSION), is
+The current OpenShare release is **0.2.31**. The canonical value lives in [`VERSION`](VERSION), is
 shown in the web footer, and is returned by `GET /health` so operators can verify the active build.
 
 ## Quick start
@@ -87,6 +94,11 @@ assets directly. OpenShare also accepts the same key on the legacy `/api/assets`
 already-released OpenChat servers can migrate without enabling a development login. Both apps share the same
 OIDC provider, so a logged-in user is authorized to both. OpenChat also runs fine **without**
 OpenShare — it simply hides file/image uploads.
+
+When the companion key is enabled, OpenShare classifies service-key uploads as OpenChat content.
+The web library exposes that logical collection beside “My shared links,” while normal uploads
+remain in the personal library. Upgrading from an older release migrates assets from the former
+top-level `Chat` folder into this collection and removes that folder when it is empty.
 
 ## Storage layout
 
@@ -146,11 +158,12 @@ ffmpeg, OpenChat, or a deployed OpenShare instance.
 python -m venv .venv
 . .venv/bin/activate
 pip install -r requirements-dev.txt
+npm --prefix web ci
 make test            # complete suite
 make test-unit       # fast classification/configuration checks
 make test-integration
 make test-cov        # branch coverage + coverage.xml
-make verify          # lint, coverage, loading/deployer checks, and production dependency audit
+make verify          # Python/React tests, builds, coverage, deploy checks, and dependency audit
 ```
 
 CI also builds the production Docker image and imports the application inside it. This smoke check

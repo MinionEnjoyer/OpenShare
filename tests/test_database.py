@@ -47,8 +47,8 @@ def test_schema_initialization_is_idempotent_and_complete(harness: OpenShareHarn
             return columns, folder_columns, journal_mode
 
     columns, folder_columns, journal_mode = run(inspect())
-    assert {"folder_id", "sha256", "waveform"} <= columns
-    assert {"color", "icon"} <= folder_columns
+    assert {"folder_id", "sha256", "waveform", "source_app"} <= columns
+    assert {"color", "icon", "preview_mode", "preview_media_id"} <= folder_columns
     assert journal_mode == "wal"
 
 
@@ -71,6 +71,47 @@ def test_existing_folder_rows_receive_safe_appearance_defaults(monkeypatch, tmp_
     folder = run(db.folder_get("legacy"))
     assert folder["color"] == "#4f9cf9"
     assert folder["icon"] == "📁"
+    assert folder["preview_mode"] == "icon"
+    assert folder["preview_media_id"] is None
+
+
+def test_legacy_chat_folder_is_migrated_to_companion_collection(monkeypatch, tmp_path):
+    legacy_database = tmp_path / "legacy-chat" / "gallery.db"
+    legacy_database.parent.mkdir(parents=True)
+    with sqlite3.connect(legacy_database) as connection:
+        connection.executescript("""
+            CREATE TABLE folders (
+                id TEXT PRIMARY KEY, owner_sub TEXT NOT NULL, parent_id TEXT,
+                name TEXT NOT NULL, color TEXT NOT NULL DEFAULT '#4f9cf9',
+                icon TEXT NOT NULL DEFAULT '📁', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE media (
+                id TEXT PRIMARY KEY, owner_sub TEXT NOT NULL, owner_username TEXT NOT NULL,
+                media_type TEXT NOT NULL, original_name TEXT NOT NULL, storage_path TEXT NOT NULL,
+                thumb_path TEXT, mime_type TEXT NOT NULL, size_bytes INTEGER NOT NULL,
+                width INTEGER, height INTEGER, duration_s REAL,
+                uploaded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                folder_id TEXT, sha256 TEXT, waveform TEXT
+            );
+            INSERT INTO folders (id, owner_sub, parent_id, name) VALUES
+                ('legacy-chat', 'owner-1', NULL, 'Chat');
+            INSERT INTO media (
+                id, owner_sub, owner_username, media_type, original_name, storage_path,
+                mime_type, size_bytes, folder_id
+            ) VALUES (
+                'chat-image', 'owner-1', 'owner', 'image', 'sticker.png', '/tmp/sticker.png',
+                'image/png', 42, 'legacy-chat'
+            );
+        """)
+    monkeypatch.setattr(db, "DB_PATH", legacy_database)
+
+    run(db.init())
+
+    migrated = run(db.get_media("chat-image"))
+    assert migrated["source_app"] == "openchat"
+    assert migrated["folder_id"] is None
+    assert run(db.folder_get("legacy-chat")) is None
+    assert [item["id"] for item in run(db.list_companion_media(OWNER["sub"], "openchat"))] == ["chat-image"]
 
 
 def test_concurrent_writes_complete_without_database_locked(harness: OpenShareHarness):

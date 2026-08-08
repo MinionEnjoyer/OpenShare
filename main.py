@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import shutil
+import unicodedata
 import zipfile
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -367,7 +368,11 @@ def require_upload_user(request: Request) -> dict:
         if supplied and secrets.compare_digest(supplied, SHARE_API_KEY):
             sub = request.headers.get("x-share-user-sub", "").strip()
             if sub:
-                return {"sub": sub, "username": request.headers.get("x-share-user-name", "").strip() or sub}
+                return {
+                    "sub": sub,
+                    "username": request.headers.get("x-share-user-name", "").strip() or sub,
+                    "source_app": "openchat",
+                }
         raise HTTPException(status_code=401, detail="invalid service credentials")
     return require_user(request)
 
@@ -380,7 +385,7 @@ def require_legacy_service_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="invalid service credentials")
     sub = request.headers.get("x-share-user-sub", "").strip() or "openchat-service"
     username = request.headers.get("x-share-user-name", "").strip() or sub
-    return {"sub": sub, "username": username}
+    return {"sub": sub, "username": username, "source_app": "openchat"}
 
 
 async def _owner_folder(folder_id: str, owner_sub: str) -> dict:
@@ -392,13 +397,20 @@ async def _owner_folder(folder_id: str, owner_sub: str) -> dict:
 
 async def _render_owner_view(request, user, folder):
     folder_id = folder["id"] if folder else None
-    items, subfolders, breadcrumb, all_folders, storage_bytes = await asyncio.gather(
+    items, subfolders, breadcrumb, all_folders, storage_bytes, preview_images = await asyncio.gather(
         db.list_media_in_folder(user["sub"], folder_id),
         db.folder_list_children(user["sub"], folder_id),
         db.folder_breadcrumb(folder_id),
         db.folder_list_all_for_owner(user["sub"]),
         db.owner_storage_bytes(user["sub"]),
+        db.folder_preview_images(user["sub"]),
     )
+    def add_previews(candidate: dict) -> dict:
+        return {**candidate, "preview_images": preview_images.get(candidate["id"], [])}
+
+    folder = add_previews(folder) if folder else None
+    subfolders = [add_previews(candidate) for candidate in subfolders]
+    all_folders = [add_previews(candidate) for candidate in all_folders]
     return templates.TemplateResponse(
         request=request,
         name="gallery.html",
@@ -410,8 +422,8 @@ async def _render_owner_view(request, user, folder):
             "subfolders": subfolders,
             "items": items,
             "all_folders": all_folders,
-            "folder_emojis": FOLDER_EMOJIS,
             "public_url": PUBLIC_URL,
+            "share_api_enabled": bool(SHARE_API_KEY),
         },
     )
 
@@ -463,37 +475,20 @@ async def auth_logout(request: Request):
 
 # ---------- Folders ----------
 
-FOLDER_EMOJIS = (
-    {"emoji": "📁", "label": "Folder"}, {"emoji": "📷", "label": "Camera"},
-    {"emoji": "🎨", "label": "Art"}, {"emoji": "🎵", "label": "Music"},
-    {"emoji": "🎬", "label": "Film"}, {"emoji": "📚", "label": "Books"},
-    {"emoji": "💼", "label": "Work"}, {"emoji": "🧪", "label": "Science"},
-    {"emoji": "⭐", "label": "Star"}, {"emoji": "🗃️", "label": "Archive"},
-    {"emoji": "🏠", "label": "Home"}, {"emoji": "🌎", "label": "World"},
-    {"emoji": "🚀", "label": "Rocket"}, {"emoji": "💡", "label": "Ideas"},
-    {"emoji": "💬", "label": "Chat"}, {"emoji": "❤️", "label": "Heart"},
-    {"emoji": "🔥", "label": "Fire"}, {"emoji": "✨", "label": "Sparkles"},
-    {"emoji": "🎮", "label": "Games"}, {"emoji": "💻", "label": "Code"},
-    {"emoji": "🛠️", "label": "Tools"}, {"emoji": "🔒", "label": "Private"},
-    {"emoji": "🛒", "label": "Shopping"}, {"emoji": "🍽️", "label": "Food"},
-    {"emoji": "🐾", "label": "Pets"}, {"emoji": "✈️", "label": "Travel"},
-    {"emoji": "🏋️", "label": "Fitness"}, {"emoji": "🌿", "label": "Nature"},
-    {"emoji": "📅", "label": "Calendar"}, {"emoji": "🏆", "label": "Trophy"},
-    {"emoji": "🎁", "label": "Gifts"}, {"emoji": "💰", "label": "Finance"},
-    {"emoji": "📝", "label": "Notes"}, {"emoji": "🔖", "label": "Bookmarks"},
-    {"emoji": "🧭", "label": "Explore"}, {"emoji": "☁️", "label": "Cloud"},
-    {"emoji": "🌙", "label": "Night"}, {"emoji": "☀️", "label": "Day"},
-    {"emoji": "🎓", "label": "Education"}, {"emoji": "🧰", "label": "Projects"},
-)
-FOLDER_ICONS = frozenset(choice["emoji"] for choice in FOLDER_EMOJIS)
 FOLDER_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
 def validate_folder_appearance(color: str, icon: str) -> tuple[str, str]:
     color = color.strip().lower()
+    icon = icon.strip()
     if not FOLDER_COLOR_RE.fullmatch(color):
         raise HTTPException(400, detail="invalid folder color")
-    if icon not in FOLDER_ICONS:
+    # emoji-mart returns native Unicode grapheme sequences. Keep this backend
+    # validation library-agnostic while rejecting empty, oversized, or control
+    # character payloads. Jinja and React both render the stored value as text.
+    if not icon or len(icon) > 16 or any(
+        unicodedata.category(char) in {"Cc", "Cs"} for char in icon
+    ):
         raise HTTPException(400, detail="invalid folder icon")
     return color, icon
 
@@ -540,6 +535,8 @@ async def update_folder(
     name: str = Form(...),
     color: str = Form(...),
     icon: str = Form(...),
+    preview_mode: str = Form("icon"),
+    preview_media_id: str = Form(""),
     stay: str = Form("parent"),
     user: dict = Depends(require_user),
 ):
@@ -548,9 +545,32 @@ async def update_folder(
     if not name:
         raise HTTPException(400, detail="name required")
     color, icon = validate_folder_appearance(color, icon)
+    if preview_mode not in {"icon", "dynamic", "custom"}:
+        raise HTTPException(400, detail="invalid folder preview mode")
+    selected_preview = preview_media_id.strip() or None
+    if preview_mode == "custom":
+        media = await db.get_media(selected_preview or "")
+        if (
+            not media
+            or media["owner_sub"] != user["sub"]
+            or media["folder_id"] != folder_id
+            or media["media_type"] != "image"
+            or not media["thumb_path"]
+        ):
+            raise HTTPException(400, detail="preview image must belong to this folder")
+    else:
+        selected_preview = None
     if stay not in {"self", "parent"}:
         raise HTTPException(400, detail="invalid return target")
-    ok = await db.folder_update(folder_id, user["sub"], name, color, icon)
+    ok = await db.folder_update(
+        folder_id,
+        user["sub"],
+        name,
+        color,
+        icon,
+        preview_mode,
+        selected_preview,
+    )
     if not ok:
         raise HTTPException(400, detail="could not update folder")
     parent = folder["parent_id"]
@@ -579,6 +599,67 @@ async def move_folder(
     if not ok:
         raise HTTPException(400, detail="invalid move (would cycle, or target not owned)")
     return RedirectResponse(url=f"/folder/{folder_id}", status_code=303)
+
+
+@app.post("/folders/{folder_id}/shares")
+async def create_folder_share_link(
+    folder_id: str,
+    user: dict = Depends(require_user),
+):
+    await _owner_folder(folder_id, user["sub"])
+    link_id = new_id(18)
+    if not await db.share_link_create(link_id, folder_id, user["sub"]):
+        raise HTTPException(400, detail="could not create share link")
+    return {"id": link_id, "folderId": folder_id, "url": f"{PUBLIC_URL}/s/{link_id}"}
+
+
+@app.get("/api/share-links")
+async def list_share_links(user: dict = Depends(require_user)):
+    links = await db.share_link_list(user["sub"])
+    return [
+        {
+            "id": link["id"],
+            "folderId": link["folder_id"],
+            "folderName": link["folder_name"],
+            "url": f"{PUBLIC_URL}/s/{link['id']}",
+            "createdAt": link["created_at"],
+            "revokedAt": link["revoked_at"],
+        }
+        for link in links
+    ]
+
+
+@app.get("/api/companion-content")
+async def list_companion_content(
+    app_name: str = "openchat",
+    user: dict = Depends(require_user),
+):
+    if app_name != "openchat":
+        raise HTTPException(400, detail="unsupported companion")
+    items = await db.list_companion_media(user["sub"], app_name)
+    prefixes = {
+        "image": "i", "video": "v", "pdf": "d", "model": "m",
+        "text": "t", "archive": "a", "audio": "au",
+    }
+    return [
+        {
+            "id": item["id"],
+            "name": item["original_name"],
+            "mediaType": item["media_type"],
+            "viewUrl": f"/{prefixes.get(item['media_type'], 'd')}/{item['id']}",
+            "thumbUrl": f"/thumb/{item['id']}" if item["thumb_path"] else None,
+            "uploadedAt": item["uploaded_at"],
+            "sizeBytes": item["size_bytes"],
+        }
+        for item in items
+    ]
+
+
+@app.post("/shares/{link_id}/revoke")
+async def revoke_share_link(link_id: str, user: dict = Depends(require_user)):
+    if not await db.share_link_revoke(link_id, user["sub"]):
+        raise HTTPException(404, detail="active share link not found")
+    return {"revoked": True}
 
 
 # ---------- Upload ----------
@@ -686,11 +767,12 @@ async def upload(
     if UPLOAD_MAX_FILES and len(files) > UPLOAD_MAX_FILES:
         raise HTTPException(413, f"upload exceeds configured {UPLOAD_MAX_FILES}-file limit")
     target_folder = folder_id or None
+    companion_sources = {"chat", "openchat", "sticker", "soundboard", "avatar", "attachment"}
+    source_app = user.get("source_app") or ("openchat" if source.lower() in companion_sources else "personal")
     if target_folder is not None:
         await _owner_folder(target_folder, user["sub"])
-    # Chat attachments land in a dedicated per-user "Chat" folder so they don't clutter the gallery.
-    elif source == "chat":
-        target_folder = await db.folder_find_or_create(user["sub"], "Chat", new_id())
+    if source_app == "openchat":
+        target_folder = None
 
     saved: list = []
     rejected: list = []
@@ -717,7 +799,7 @@ async def upload(
                 "thumb_path": str(thumb_path) if thumb_path else None,
                 "mime_type": primary_mime, "size_bytes": total_size,
                 "width": w, "height": h, "duration_s": None,
-                "folder_id": target_folder,
+                "folder_id": target_folder, "source_app": source_app,
             }
             await _persist_media(item, source)
             saved.append({"id": mid, "media_type": "model", "bundle": True})
@@ -807,7 +889,7 @@ async def upload(
                     "thumb_path": str(thumb_path) if thumb_path else None,
                     "mime_type": "application/octet-stream", "size_bytes": size,
                     "width": w, "height": h, "duration_s": None,
-                    "folder_id": target_folder,
+                    "folder_id": target_folder, "source_app": source_app,
                 }
                 await _persist_media(item, source)
                 saved.append({"id": mid, "media_type": "model", "bundle": True})
@@ -818,7 +900,7 @@ async def upload(
 
         # De-duplicate: if this owner already uploaded an identical file, reuse it instead of
         # creating a second copy (fixes the same image appearing multiple times from chat/avatars).
-        existing = await db.find_media_by_hash(user["sub"], digest)
+        existing = await db.find_media_by_hash(user["sub"], digest, source_app)
         if existing:
             storage_path.unlink(missing_ok=True)
             saved.append({"id": existing["id"], "media_type": existing["media_type"]})
@@ -862,6 +944,7 @@ async def upload(
             "mime_type": mime, "size_bytes": size,
             "width": w, "height": h, "duration_s": duration,
             "folder_id": target_folder, "sha256": digest, "waveform": waveform_json,
+            "source_app": source_app,
         }
         await _persist_media(item, source)
         saved.append({"id": mid, "media_type": media_type})
@@ -1108,8 +1191,7 @@ async def search(request: Request, q: str = "", user: dict = Depends(require_use
     })
 
 
-@app.get("/f/{folder_id}", response_class=HTMLResponse)
-async def view_folder_public(folder_id: str, request: Request):
+async def _render_public_folder(folder_id: str, request: Request, share_url: str):
     data = await db.folder_public_view(folder_id)
     if not data:
         raise HTTPException(404)
@@ -1121,7 +1203,23 @@ async def view_folder_public(folder_id: str, request: Request):
             "subfolders": data["subfolders"],
             "items": data["items"],
             "public_url": PUBLIC_URL,
+            "share_url": share_url,
         },
+    )
+
+
+@app.get("/f/{folder_id}", response_class=HTMLResponse)
+async def view_folder_public(folder_id: str, request: Request):
+    return await _render_public_folder(folder_id, request, f"{PUBLIC_URL}/f/{folder_id}")
+
+
+@app.get("/s/{link_id}", response_class=HTMLResponse)
+async def view_recorded_share_link(link_id: str, request: Request):
+    link = await db.share_link_get(link_id)
+    if not link:
+        raise HTTPException(404)
+    return await _render_public_folder(
+        link["folder_id"], request, f"{PUBLIC_URL}/s/{link_id}"
     )
 
 

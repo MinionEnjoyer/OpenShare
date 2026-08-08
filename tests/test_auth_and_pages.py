@@ -53,10 +53,9 @@ def test_logged_in_home_renders_gallery(monkeypatch, harness: OpenShareHarness):
 
     assert response.status_code == 200
     assert "Drop files here" in response.text
-    assert 'class="folder-create-panel"' in response.text
-    assert 'data-loading="Creating folder…" data-async-form' in response.text
-    assert 'name="color"' in response.text
-    assert 'name="icon"' in response.text
+    assert 'id="folder-workspace"' in response.text
+    assert 'id="folder-workspace-data"' in response.text
+    assert '/static/react/assets/folder-workspace.js' in response.text
     assert "OpenShareLoading.navigateWithBusy" in response.text
     assert f"OpenShare v{main.APP_VERSION}" in response.text
     assert "Sign in" not in response.text

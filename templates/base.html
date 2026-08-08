@@ -3,12 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
 <title>{% block title %}OpenShare{% endblock %}</title>
+<script>(function(){var p=localStorage.getItem('openshare-theme')||'system';var d=p==='dark'||(p==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light';document.documentElement.dataset.themePreference=p})()</script>
 {% block meta %}{% endblock %}
 <link rel="icon" type="image/png" href="/static/favicon.png">
 <link rel="stylesheet" href="/static/style.css">
+{% block head %}{% endblock %}
 <script defer src="/static/loading.js"></script>
-<script defer src="/static/folders.js"></script>
 </head>
 <body>
 <nav class="app-nav">

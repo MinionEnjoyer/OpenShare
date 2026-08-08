@@ -3,7 +3,7 @@
 {% block meta %}
 <meta property="og:title" content="{{ folder.name }}">
 <meta property="og:type" content="website">
-<meta property="og:url" content="{{ public_url }}/f/{{ folder.id }}">
+<meta property="og:url" content="{{ share_url }}">
 {% if items and items[0].thumb_path %}
 <meta property="og:image" content="{{ public_url }}/thumb/{{ items[0].id }}">
 {% endif %}

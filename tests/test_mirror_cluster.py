@@ -40,6 +40,7 @@ def asset_envelope(content: bytes, event_id: str = "1f376840-1c66-4f4f-ac79-ef76
             "sha256": digest,
             "waveform": None,
             "source": "chat",
+            "source_app": "openchat",
         },
     }
 
@@ -102,7 +103,9 @@ def test_received_asset_is_digest_checked_persisted_and_idempotent(harness: Open
     item = harness.media("asset1")
     assert item is not None
     assert Path(item["storage_path"]).read_bytes() == content
-    assert item["folder_id"] is not None
+    assert item["folder_id"] is None
+    assert item["source_app"] == "openchat"
+    assert harness.folders() == []
     assert run(db.mirror_event_seen("1f376840-1c66-4f4f-ac79-ef76d433d6e8")) is True
 
     duplicate = tmp_path / "duplicate.part"
@@ -151,6 +154,7 @@ def test_outbox_survives_until_peer_acknowledges(monkeypatch, harness: OpenShare
         "media_type": "text", "original_name": "asset.txt", "storage_path": str(path),
         "mime_type": "text/plain", "size_bytes": 7, "width": None, "height": None,
         "duration_s": None, "sha256": None, "waveform": None,
+        "source_app": "openchat",
     }
     run(mirror.queue_media(item, "chat", cfg))
     assert run(db.mirror_pending_count()) == 1

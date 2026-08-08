@@ -14,7 +14,11 @@ external services. Each test using `harness` gets:
 Use the service identity for the OpenChat upload contract:
 
 ```python
-response = harness.upload(("pixel.png", PNG_1X1, "image/png"), source="chat")
+response = harness.upload(
+    ("pixel.png", PNG_1X1, "image/png"),
+    source="chat",
+    service=True,
+)
 ```
 
 Use the owner identity for browser-only routes such as folder or delete operations:
@@ -34,8 +38,9 @@ anonymous and exercise the real 401 path.
 The security suite also covers canonical origin handling for case, trailing slashes, and default
 ports while continuing to reject missing and cross-origin mutation requests. Folder coverage
 includes arbitrary six-digit RGB colors, the searchable emoji catalog, owner-only updates to
-existing folders, safe post-edit return targets, the directory-tree builder, and the client-side
-edit-mode toggle.
+existing folders, icon/dynamic/custom image previews, safe post-edit return targets, the
+directory-tree builder, persisted theme selection, recorded/revocable share links, the separated
+OpenChat companion collection, and the client-side edit-mode toggle.
 
 ## Test groups
 

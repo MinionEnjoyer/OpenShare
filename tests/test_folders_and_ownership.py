@@ -83,6 +83,15 @@ def test_folder_appearance_is_validated_and_persisted(harness: OpenShareHarness)
     assert invalid.status_code == 400
     assert invalid.json() == {"detail": "invalid folder color"}
 
+    full_picker_icon = harness.client.post(
+        "/folders",
+        headers=harness.owner_headers(),
+        data={"name": "Team", "parent_id": "", "color": "#123456", "icon": "👩🏽‍💻"},
+        follow_redirects=False,
+    )
+    assert full_picker_icon.status_code == 303
+    assert next(folder for folder in harness.folders() if folder["name"] == "Team")["icon"] == "👩🏽‍💻"
+
 
 def test_edit_folder_updates_name_color_and_emoji(harness: OpenShareHarness):
     folder_id = create_folder(harness, "Draft")
@@ -100,6 +109,56 @@ def test_edit_folder_updates_name_color_and_emoji(harness: OpenShareHarness):
     assert updated["name"] == "Published"
     assert updated["color"] == "#c83cff"
     assert updated["icon"] == "🚀"
+    assert updated["preview_mode"] == "icon"
+
+
+def test_folder_preview_requires_an_owned_image_from_the_same_folder(harness: OpenShareHarness):
+    folder_id = create_folder(harness, "Gallery")
+    other_id = create_folder(harness, "Other")
+    image_id = harness.upload(("cover.png", PNG_1X1, "image/png"), folder_id=folder_id).json()["saved"][0]["id"]
+    other_image_id = harness.upload(("other.png", PNG_1X1 + b"other", "image/png"), folder_id=other_id).json()["saved"][0]["id"]
+
+    custom = harness.client.post(
+        f"/folders/{folder_id}/update",
+        headers=harness.owner_headers(),
+        data={"name": "Gallery", "color": "#4f9cf9", "icon": "📁", "stay": "self", "preview_mode": "custom", "preview_media_id": image_id},
+        follow_redirects=False,
+    )
+    denied = harness.client.post(
+        f"/folders/{folder_id}/update",
+        headers=harness.owner_headers(),
+        data={"name": "Gallery", "color": "#4f9cf9", "icon": "📁", "stay": "self", "preview_mode": "custom", "preview_media_id": other_image_id},
+        follow_redirects=False,
+    )
+
+    assert custom.status_code == 303
+    assert denied.status_code == 400
+    folder = run(db.folder_get(folder_id))
+    assert folder["preview_mode"] == "custom"
+    assert folder["preview_media_id"] == image_id
+    assert run(db.folder_preview_images(OWNER["sub"]))[folder_id][0]["id"] == image_id
+
+
+def test_recorded_share_links_can_be_listed_opened_and_revoked(harness: OpenShareHarness):
+    folder_id = create_folder(harness, "Shared")
+
+    created = harness.client.post(
+        f"/folders/{folder_id}/shares", headers=harness.owner_headers()
+    )
+    payload = created.json()
+    listed = harness.client.get("/api/share-links", headers=harness.owner_headers())
+    opened = harness.client.get(f"/s/{payload['id']}")
+    revoked = harness.client.post(
+        f"/shares/{payload['id']}/revoke", headers=harness.owner_headers()
+    )
+    missing = harness.client.get(f"/s/{payload['id']}")
+
+    assert created.status_code == 200
+    assert payload["url"].endswith(f"/s/{payload['id']}")
+    assert listed.json()[0]["folderName"] == "Shared"
+    assert opened.status_code == 200
+    assert revoked.json() == {"revoked": True}
+    assert missing.status_code == 404
 
 
 def test_edit_folder_is_owner_scoped_and_validates_return_target(harness: OpenShareHarness):
@@ -124,24 +183,17 @@ def test_edit_folder_is_owner_scoped_and_validates_return_target(harness: OpenSh
     assert run(db.folder_get(folder_id))["name"] == "Private"
 
 
-def test_folder_page_renders_creation_surface_and_active_orbit(harness: OpenShareHarness):
+def test_folder_page_renders_react_workspace_data_and_active_orbit(harness: OpenShareHarness):
     folder_id = create_folder(harness, "Design", color="#8b7cf6", icon="🎨")
     response = harness.client.get(f"/folder/{folder_id}", headers=harness.owner_headers())
 
     assert response.status_code == 200
-    assert 'class="folder-create-panel"' in response.text
-    assert 'name="color"' in response.text
-    assert 'name="icon"' in response.text
-    assert 'data-color-well' in response.text
-    assert 'data-rgb="r"' in response.text
-    assert 'data-emoji-search' in response.text
-    assert 'id="folder-edit-toggle"' in response.text
-    assert 'class="btn folder-edit-action"' in response.text
-    assert 'data-open-dialog="folder-edit-' in response.text
-    assert 'hidden>Edit current folder</button>' in response.text
-    assert 'id="folder-tree-dialog"' in response.text
-    assert 'data-folder-tree-source' in response.text
-    assert f'action="/folders/{folder_id}/update"' in response.text
+    assert 'id="folder-workspace"' in response.text
+    assert 'id="folder-workspace-data"' in response.text
+    assert '/static/react/assets/folder-workspace.js' in response.text
+    assert '/static/react/assets/folder-workspace.css' in response.text
+    assert '"currentFolder"' in response.text
+    assert '"allFolders"' in response.text
     assert 'class="active-folder"' in response.text
     assert 'style="--folder-color: #8b7cf6"' in response.text
     assert "🎨" in response.text

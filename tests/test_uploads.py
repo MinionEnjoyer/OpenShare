@@ -11,7 +11,7 @@ pytestmark = pytest.mark.integration
 
 
 def test_scoped_service_upload_persists_and_serves_image(harness: OpenShareHarness):
-    response = harness.upload(("pixel.png", PNG_1X1, "image/png"), source="chat")
+    response = harness.upload(("pixel.png", PNG_1X1, "image/png"), source="chat", service=True)
 
     assert response.status_code == 200
     assert response.json()["rejected"] == []
@@ -26,9 +26,17 @@ def test_scoped_service_upload_persists_and_serves_image(harness: OpenShareHarne
     assert Path(item["storage_path"]).is_file()
     assert Path(item["thumb_path"]).is_file()
 
-    folders = harness.folders()
-    assert [(folder["name"], folder["parent_id"]) for folder in folders] == [("Chat", None)]
-    assert item["folder_id"] == folders[0]["id"]
+    assert harness.folders() == []
+    assert item["folder_id"] is None
+    assert item["source_app"] == "openchat"
+    assert run(db.list_media_in_folder(OWNER["sub"], None)) == []
+    assert [asset["id"] for asset in run(db.list_companion_media(OWNER["sub"], "openchat"))] == [item["id"]]
+    companion = harness.client.get(
+        "/api/companion-content?app_name=openchat", headers=harness.owner_headers()
+    )
+    assert companion.status_code == 200
+    assert companion.json()[0]["name"] == "pixel.png"
+    assert companion.json()[0]["viewUrl"] == f"/i/{item['id']}"
 
     raw = harness.client.get(f"/raw/{item['id']}")
     assert raw.status_code == 200

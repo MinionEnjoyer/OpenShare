@@ -74,7 +74,7 @@ class OpenShareHarness:
         owner: dict[str, str] = OWNER,
         source: str = "",
         folder_id: str = "",
-        service: bool = True,
+        service: bool = False,
     ):
         headers = self.service_headers(owner) if service else self.owner_headers(owner)
         data = {"source": source, "folder_id": folder_id}

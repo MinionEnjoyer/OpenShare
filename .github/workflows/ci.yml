@@ -21,9 +21,12 @@ jobs:
         with:
           node-version: 22
       - run: pip install -r requirements-dev.txt
+      - run: npm --prefix web ci
       - run: make lint
       - run: make test-cov
       - run: make test-js
+      - run: make test-web
+      - run: make test-web-build
       - run: make test-ops
       - run: pip-audit -r requirements.txt
       - name: Build and import the production image

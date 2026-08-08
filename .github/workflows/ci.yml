@@ -24,4 +24,5 @@ jobs:
       - run: make lint
       - run: make test-cov
       - run: make test-js
+      - run: make test-ops
       - run: pip-audit -r requirements.txt

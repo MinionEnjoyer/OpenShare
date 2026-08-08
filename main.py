@@ -25,6 +25,7 @@ import thumbs
 STORAGE_ROOT = Path(os.environ.get("STORAGE_ROOT", "/srv/gallery"))
 FILES_DIR = STORAGE_ROOT / "files"
 THUMBS_DIR = STORAGE_ROOT / "thumbs"
+APP_VERSION = Path(__file__).with_name("VERSION").read_text(encoding="utf-8").strip()
 SESSION_SECRET = os.environ["SESSION_SECRET"]
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "http://localhost:8000").rstrip("/")
 # Cross-origin clients allowed to upload with credentials (e.g. your OpenChat URL).
@@ -250,6 +251,12 @@ async def security_boundary(request: Request, call_next):
     return response
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+templates.env.globals["app_version"] = APP_VERSION
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "version": APP_VERSION}
 
 
 async def _backfill_model_thumbs():

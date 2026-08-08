@@ -38,6 +38,7 @@ anonymous and exercise the real 401 path.
 - `pytest --cov` enforces the branch-coverage threshold configured in `pyproject.toml`.
 - `make test-js` runs browser loading, navigation-timeout, and failure-recovery contracts with
   Node's built-in test runner and no third-party JavaScript test dependencies.
+- `make test-ops` syntax-checks the CI-gated systemd deployment scaffold.
 
 Media processors are faked by default so a malformed placeholder video or PDF is sufficient for
 route tests. Tests for the processor implementations themselves should be marked separately and

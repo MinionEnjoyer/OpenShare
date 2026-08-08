@@ -1,12 +1,15 @@
 PYTHON ?= python3
 
-.PHONY: test test-js test-unit test-integration test-cov lint audit verify
+.PHONY: test test-js test-ops test-unit test-integration test-cov lint audit verify
 
 test:
 	$(PYTHON) -m pytest
 
 test-js:
 	node --test tests/js/*.test.cjs
+
+test-ops:
+	bash -n ops/systemd/openshare-autodeploy.sh
 
 test-unit:
 	$(PYTHON) -m pytest -m unit
@@ -23,4 +26,4 @@ lint:
 audit:
 	$(PYTHON) -m pip_audit -r requirements.txt
 
-verify: lint test-cov test-js audit
+verify: lint test-cov test-js test-ops audit

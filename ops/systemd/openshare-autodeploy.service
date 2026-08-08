@@ -1,0 +1,29 @@
+[Unit]
+Description=Deploy CI-passed OpenShare main to production
+Documentation=https://github.com/MinionEnjoyer/OpenShare/blob/main/README.md
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=/etc/openshare/deploy.conf
+Environment=DOCKER_CONFIG=/opt/openshare-deployer/docker-config
+ExecStart=/usr/local/sbin/openshare-autodeploy
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/openshare-deployer /opt/openshare-releases /run
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictRealtime=true
+LockPersonality=true
+TimeoutStartSec=20min
+
+[Install]
+WantedBy=multi-user.target

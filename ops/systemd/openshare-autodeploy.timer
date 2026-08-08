@@ -1,0 +1,12 @@
+[Unit]
+Description=Check for a CI-passed OpenShare release every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+Persistent=true
+Unit=openshare-autodeploy.service
+
+[Install]
+WantedBy=timers.target

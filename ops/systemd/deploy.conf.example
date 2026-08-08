@@ -1,0 +1,11 @@
+OPENSHARE_REPO_URL=https://github.com/MinionEnjoyer/OpenShare.git
+OPENSHARE_GITHUB_REPOSITORY=MinionEnjoyer/OpenShare
+OPENSHARE_BRANCH=main
+OPENSHARE_WORKFLOW_NAME=CI
+OPENSHARE_DEPLOY_ROOT=/opt/openshare-deployer
+OPENSHARE_RELEASES_DIR=/opt/openshare-releases
+OPENSHARE_CONFIG_DIR=/etc/openshare
+OPENSHARE_CURRENT_LINK=/opt/openshare-releases/current
+OPENSHARE_COMPOSE_PROJECT=openshare
+OPENSHARE_CONTAINER_NAME=openshare
+OPENSHARE_HEALTH_URL=http://127.0.0.1:8800/health

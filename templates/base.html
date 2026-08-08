@@ -29,6 +29,7 @@
 </section>
 {% endif %}
 <main>{% block content %}{% endblock %}</main>
+<footer class="app-version" aria-label="OpenShare version {{ app_version }}">OpenShare v{{ app_version }}</footer>
 <div id="page-busy" class="page-busy" role="status" aria-live="polite" hidden>
   <span class="oc-spinner oc-spinner--sm" aria-hidden="true"></span>
   <span id="page-busy-text">Working…</span>

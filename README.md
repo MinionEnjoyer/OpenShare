@@ -29,6 +29,9 @@ share links — and doubles as the upload/attachment backend for
 FastAPI (Python 3.12) · SQLite · Authlib (OIDC) · Pillow / ffmpeg / poppler / pyrender for
 thumbnails · Jinja2 templates. Ships as a single Docker image.
 
+The current OpenShare release is **0.1.0**. The canonical value lives in [`VERSION`](VERSION), is
+shown in the web footer, and is returned by `GET /health` so operators can verify the active build.
+
 ## Quick start
 
 ```bash
@@ -86,6 +89,39 @@ OpenShare — it simply hides file/image uploads.
 
 Both persist across rebuilds; neither is ever committed to git.
 
+## CI-gated automatic deployment
+
+The optional systemd scaffold in `ops/systemd/` polls `main` every five minutes and deploys only
+when the GitHub Actions workflow named `CI` has succeeded for that exact commit. Each build is
+checked out into an immutable release directory, and `/health` must report the release's exact
+`VERSION` before the active pointer advances. Failed builds retain the previous pointer and trigger
+an application rollback attempt.
+
+For immutable releases, `DB_PATH` and `STORAGE_PATH` in the protected production `.env` must be
+absolute host paths. The deployer refuses to start otherwise, preventing a new release directory
+from silently creating a fresh database or storage tree.
+
+On the deployment host, install the protected configuration and units once:
+
+```bash
+sudo install -d -m 0750 /etc/openshare /opt/openshare-deployer /opt/openshare-releases
+sudo install -m 0640 .env /etc/openshare/.env
+sudo install -m 0640 ops/systemd/deploy.conf.example /etc/openshare/deploy.conf
+sudo install -m 0755 ops/systemd/openshare-autodeploy.sh /usr/local/sbin/openshare-autodeploy
+sudo install -m 0644 ops/systemd/openshare-autodeploy.service /etc/systemd/system/
+sudo install -m 0644 ops/systemd/openshare-autodeploy.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now openshare-autodeploy.timer
+```
+
+Confirm candidate resolution without changing the running stack:
+
+```bash
+sudo systemctl stop openshare-autodeploy.timer
+sudo bash -c 'set -a; . /etc/openshare/deploy.conf; exec /usr/local/sbin/openshare-autodeploy --check'
+sudo systemctl start openshare-autodeploy.timer
+```
+
 ## Testing
 
 The test harness runs entirely in-process. It creates a fresh SQLite database and storage tree
@@ -100,7 +136,7 @@ make test            # complete suite
 make test-unit       # fast classification/configuration checks
 make test-integration
 make test-cov        # branch coverage + coverage.xml
-make verify          # lint, coverage, and production dependency audit
+make verify          # lint, coverage, loading/deployer checks, and production dependency audit
 ```
 
 See [`tests/README.md`](tests/README.md) for fixtures, request identities, and examples.

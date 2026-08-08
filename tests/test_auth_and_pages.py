@@ -1,4 +1,5 @@
 import pytest
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import auth
@@ -54,7 +55,16 @@ def test_logged_in_home_renders_gallery(monkeypatch, harness: OpenShareHarness):
     assert "Drop files here" in response.text
     assert 'data-loading="Creating folder…" data-async-form' in response.text
     assert "OpenShareLoading.navigateWithBusy" in response.text
+    assert f"OpenShare v{main.APP_VERSION}" in response.text
     assert "Sign in" not in response.text
+
+
+def test_health_reports_the_canonical_version(harness: OpenShareHarness):
+    response = harness.client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "version": main.APP_VERSION}
+    assert (Path(__file__).resolve().parents[1] / "VERSION").read_text().strip() == main.APP_VERSION
 
 
 @pytest.mark.integration

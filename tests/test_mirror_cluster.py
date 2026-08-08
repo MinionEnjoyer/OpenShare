@@ -155,6 +155,33 @@ def test_outbox_survives_until_peer_acknowledges(monkeypatch, harness: OpenShare
     run(mirror.queue_media(item, "chat", cfg))
     assert run(db.mirror_pending_count()) == 1
 
+    class FailingClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, _url, **_kwargs):
+            raise OSError("peer unavailable")
+
+    monkeypatch.setattr(mirror.httpx, "AsyncClient", lambda **_kwargs: FailingClient())
+    assert run(mirror.dispatch_once(cfg)) == 0
+    assert run(db.mirror_pending_count()) == 1
+
+    async def inspect_and_release_retry():
+        async with db.connect_db() as connection:
+            row = await (await connection.execute(
+                "SELECT attempts, last_error FROM mirror_deliveries"
+            )).fetchone()
+            await connection.execute("UPDATE mirror_deliveries SET next_attempt_at=CURRENT_TIMESTAMP")
+            await connection.commit()
+            return row
+
+    attempts, error = run(inspect_and_release_retry())
+    assert attempts == 1
+    assert error == "peer unavailable"
+
     class Response:
         def raise_for_status(self):
             return None

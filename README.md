@@ -16,18 +16,24 @@ If OpenShare is useful to you, project support is available through
 
 ## Features
 
-- **In-browser viewers** for images, video, **audio** (a waveform player with scrubbing), PDFs,
-  text/code, archives (browse inside `.zip`), and **3D models** (rendered previews).
+- **Unified React viewers** for images, video, audio waveforms, PDFs, text/code, archives, and
+  rendered 3D models. Every viewer shares the same responsive modal shell, loading and recovery
+  states, owner actions, centered version footer, and recorded sharing workflow. Images add fit,
+  actual-size, zoom, and pan controls.
 - **Automatic thumbnails** for images, video frames, PDFs, and 3D models; audio uploads get a
   stored **waveform** (audio-level peaks) + duration, served at `/waveform/<id>`.
 - **Content-hash de-duplication** — the same file uploaded twice is stored once.
-- **Folders** with nesting, bulk actions, a two-pane searchable library explorer, custom RGB
-  colors, the full locally bundled OpenChat emoji picker, a focused edit mode, and optional
-  dynamic or user-selected image covers (icon-only by default). The upload surface remains above
-  the folder workspace at every viewport size.
+- **Folders** with nesting, bulk actions, a compact searchable directory tree with persistent
+  expansion state and keyboard navigation, custom RGB colors, the full locally bundled OpenChat
+  emoji picker, a focused edit mode, and optional dynamic or user-selected image covers
+  (icon-only by default). The upload surface remains above the folder workspace at every viewport
+  size.
 - **Recorded share links** — create, copy, review, and revoke links from “My shared links,” or add
   an existing owned `/f/<id>` folder link without changing the URL already shared. Stable
-  `/(i|v|au|d|t|m|a)/<id>` viewer URLs also expose `/raw` and `/thumb` for direct bytes.
+  `/(i|v|au|d|t|m|a)/<id>` viewer URLs also expose `/raw` and `/thumb` for direct bytes. Media
+  viewers create revocable `/ms/<id>` links recorded beside folder shares.
+- **Assisted library search** with owner-scoped suggestions generated from folder names,
+  filenames, extensions, keywords, and media types. Normal free-text search remains available.
 - **Companion collections** — when OpenChat is configured, its attachments, stickers, avatars,
   and soundboard assets appear in a dedicated OpenChat tab beside “My shared links.” They never
   create or clutter the user's personal folder tree.
@@ -42,10 +48,11 @@ If OpenShare is useful to you, project support is available through
 ## Tech
 
 FastAPI (Python 3.12) · React 18 / TypeScript · SQLite · Authlib (OIDC) · Pillow / ffmpeg /
-poppler / pyrender for thumbnails. React owns the folder-management workspace while FastAPI
-continues to own authentication, storage, viewers, and stable resource URLs. Ships as one image.
+poppler / pyrender for thumbnails. React owns the signed-in library, assisted search, public
+folder presentation, and every media viewer. FastAPI supplies thin metadata shells plus
+authentication, storage, and stable resource URLs. Ships as one image.
 
-The current OpenShare release is **0.2.32**. The canonical value lives in [`VERSION`](VERSION), is
+The current OpenShare release is **0.2.34**. The canonical value lives in [`VERSION`](VERSION), is
 shown in the web footer, and is returned by `GET /health` so operators can verify the active build.
 
 ## Quick start

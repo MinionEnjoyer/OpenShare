@@ -854,18 +854,18 @@ async def search_folders(owner_sub: str, q: str, limit: int = 100):
 
 
 async def search_suggestion_sources(owner_sub: str, media_limit: int = 500):
-    """Return owner-scoped names used to derive search suggestions."""
+    """Return owner-scoped records used for progressive search results."""
     async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT original_name, media_type FROM media "
+            "SELECT id, original_name, media_type FROM media "
             "WHERE owner_sub=? AND source_app='personal' "
             "ORDER BY uploaded_at DESC LIMIT ?",
             (owner_sub, media_limit),
         ) as cur:
             media = [dict(r) for r in await cur.fetchall()]
         async with db.execute(
-            "SELECT name FROM folders WHERE owner_sub=? ORDER BY name",
+            "SELECT id, name FROM folders WHERE owner_sub=? ORDER BY name",
             (owner_sub,),
         ) as cur:
             folders = [dict(r) for r in await cur.fetchall()]

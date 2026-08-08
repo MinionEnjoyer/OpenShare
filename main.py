@@ -8,7 +8,6 @@ import secrets
 import shutil
 import unicodedata
 import zipfile
-from collections import Counter
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -1314,7 +1313,6 @@ async def search(request: Request, q: str = "", user: dict = Depends(require_use
     })
 
 
-_SEARCH_STOP_WORDS = {"a", "an", "and", "for", "from", "in", "of", "on", "the", "to", "with"}
 _SEARCH_TYPE_LABELS = {
     "archive": "Archives",
     "audio": "Audio",
@@ -1327,67 +1325,66 @@ _SEARCH_TYPE_LABELS = {
 
 
 def _search_suggestions(sources: dict, query: str, limit: int = 8) -> list[dict]:
-    """Rank deterministic keyword suggestions from an owner's library metadata."""
-    candidates: dict[str, dict] = {}
+    """Return actual library records that progressively match the typed query."""
+    needle = unicodedata.normalize("NFKC", query).strip().casefold()
+    if len(needle) < 2:
+        return []
 
-    def add(value: str, label: str, kind: str, weight: int = 1):
-        value = value.strip()
-        if len(value) < 2:
-            return
-        key = value.casefold()
-        if key not in candidates:
-            candidates[key] = {"value": value, "label": label, "kind": kind, "count": 0}
-        candidates[key]["count"] += weight
+    ranked: list[tuple[int, int, str, dict]] = []
+    for folder in sources.get("folders", []):
+        folder_id = str(folder.get("id") or "").strip()
+        name = str(folder.get("name") or "").strip()
+        normalized = unicodedata.normalize("NFKC", name).casefold()
+        if not folder_id or needle not in normalized:
+            continue
+        rank = 0 if normalized.startswith(needle) else 1
+        ranked.append((rank, 0, normalized, {
+            "value": name,
+            "label": name,
+            "kind": "Folder",
+            "count": 1,
+            "url": f"/folder/{folder_id}",
+        }))
 
-    media_types = Counter()
     for item in sources.get("media", []):
+        media_id = str(item.get("id") or "").strip()
         name = str(item.get("original_name") or "").strip()
         media_type = str(item.get("media_type") or "").strip().lower()
-        if media_type:
-            media_types[media_type] += 1
-        if not name:
+        if not media_id or not name:
             continue
         path = Path(name)
-        stem = path.stem.strip()
-        if stem:
-            add(stem, stem, "File")
+        normalized_name = unicodedata.normalize("NFKC", name).casefold()
+        normalized_stem = unicodedata.normalize("NFKC", path.stem).casefold()
         extension = path.suffix.lower().lstrip(".")
-        if extension:
-            add(extension, extension.upper(), "Extension")
-        for token in re.findall(r"[\w]+", unicodedata.normalize("NFKC", stem), flags=re.UNICODE):
-            if token.casefold() not in _SEARCH_STOP_WORDS:
-                add(token, token, "Keyword")
-
-    for folder in sources.get("folders", []):
-        name = str(folder.get("name") or "").strip()
-        if not name:
+        type_label = _SEARCH_TYPE_LABELS.get(media_type, media_type.title()).casefold()
+        fields = (normalized_name, normalized_stem, extension, media_type, type_label)
+        if not any(needle in field for field in fields if field):
             continue
-        add(name, name, "Folder", 2)
-        for token in re.findall(r"[\w]+", unicodedata.normalize("NFKC", name), flags=re.UNICODE):
-            if token.casefold() not in _SEARCH_STOP_WORDS:
-                add(token, token, "Keyword", 2)
+        if normalized_name.startswith(needle) or normalized_stem.startswith(needle):
+            rank = 0
+        elif any(token.startswith(needle) for token in re.findall(r"[\w]+", normalized_stem)):
+            rank = 1
+        else:
+            rank = 2
+        ranked.append((rank, 1, normalized_name, {
+            "value": name,
+            "label": name,
+            "kind": _SEARCH_TYPE_LABELS.get(media_type, media_type.title()),
+            "count": 1,
+            "url": f"/{_VIEW_PREFIXES.get(media_type, 'd')}/{media_id}",
+        }))
 
-    for media_type, count in media_types.items():
-        add(media_type, _SEARCH_TYPE_LABELS.get(media_type, media_type.title()), "Type", count)
-
-    needle = query.strip().casefold()
-    ranked = []
-    for candidate in candidates.values():
-        value = candidate["value"].casefold()
-        label = candidate["label"].casefold()
-        if needle and needle not in value and needle not in label:
-            continue
-        match_rank = 0 if not needle or value.startswith(needle) or label.startswith(needle) else 1
-        kind_rank = {"Folder": 0, "File": 1, "Keyword": 2, "Type": 3, "Extension": 4}.get(candidate["kind"], 5)
-        ranked.append((match_rank, -candidate["count"], kind_rank, len(candidate["value"]), candidate))
     ranked.sort(key=lambda entry: entry[:-1])
     return [entry[-1] for entry in ranked[:max(1, min(limit, 12))]]
 
 
 @app.get("/api/search/suggestions")
 async def search_suggestions(q: str = "", user: dict = Depends(require_user)):
-    sources = await db.search_suggestion_sources(user["sub"])
-    suggestions = _search_suggestions(sources, q[:100])
+    query = q[:100].strip()
+    suggestions = []
+    if len(query) >= 2:
+        sources = await db.search_suggestion_sources(user["sub"])
+        suggestions = _search_suggestions(sources, query)
     return JSONResponse(
         {"suggestions": suggestions},
         headers={"Cache-Control": "private, max-age=30"},

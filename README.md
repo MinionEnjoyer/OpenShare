@@ -32,8 +32,10 @@ If OpenShare is useful to you, project support is available through
   an existing owned `/f/<id>` folder link without changing the URL already shared. Stable
   `/(i|v|au|d|t|m|a)/<id>` viewer URLs also expose `/raw` and `/thumb` for direct bytes. Media
   viewers create revocable `/ms/<id>` links recorded beside folder shares.
-- **Assisted library search** with owner-scoped suggestions generated from folder names,
-  filenames, extensions, keywords, and media types. Normal free-text search remains available.
+- **Progressive library search** that surfaces matching folders and files as the user types, with
+  direct navigation to each result and a clear path to the complete owner-scoped result set.
+- **Structured library workspace** with distinct upload, folder, and unsorted-file areas, balanced
+  card spacing, responsive controls, and consistent empty, loading, and error states.
 - **Companion collections** — when OpenChat is configured, its attachments, stickers, avatars,
   and soundboard assets appear in a dedicated OpenChat tab beside “My shared links.” They never
   create or clutter the user's personal folder tree.
@@ -48,11 +50,11 @@ If OpenShare is useful to you, project support is available through
 ## Tech
 
 FastAPI (Python 3.12) · React 18 / TypeScript · SQLite · Authlib (OIDC) · Pillow / ffmpeg /
-poppler / pyrender for thumbnails. React owns the signed-in library, assisted search, public
+poppler / pyrender for thumbnails. React owns the signed-in library, progressive search, public
 folder presentation, and every media viewer. FastAPI supplies thin metadata shells plus
 authentication, storage, and stable resource URLs. Ships as one image.
 
-The current OpenShare release is **0.2.34**. The canonical value lives in [`VERSION`](VERSION), is
+The current OpenShare release is **0.2.35**. The canonical value lives in [`VERSION`](VERSION), is
 shown in the web footer, and is returned by `GET /health` so operators can verify the active build.
 
 ## Quick start
@@ -64,6 +66,20 @@ docker compose up -d --build
 
 OpenShare listens on `PORT` (default `8800`). Put it behind a reverse proxy that terminates TLS
 and set `PUBLIC_URL` to the public HTTPS URL.
+
+### Public container
+
+Release images for AMD64 and ARM64 are published to the GitHub Container Registry after the exact
+`main` commit passes CI. Copy `.env.example` to `.env`, configure it, and start the published image:
+
+```bash
+docker compose -f docker-compose.public.yml pull
+docker compose -f docker-compose.public.yml up -d
+```
+
+The Compose file defaults to `ghcr.io/minionenjoyer/openshare:latest`. Set
+`OPENSHARE_VERSION=0.2.35` to pin this release, or use the published `sha-<commit>` tag for an
+immutable deployment. Source builds remain available through the standard `docker-compose.yml`.
 
 ### Configuration
 

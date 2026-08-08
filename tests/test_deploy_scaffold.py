@@ -6,6 +6,8 @@ import main
 ROOT = Path(__file__).resolve().parents[1]
 DEPLOYER = ROOT / "ops" / "systemd" / "openshare-autodeploy.sh"
 DOCKERFILE = ROOT / "Dockerfile"
+PUBLIC_COMPOSE = ROOT / "docker-compose.public.yml"
+CONTAINER_WORKFLOW = ROOT / ".github" / "workflows" / "container-release.yml"
 
 
 def test_deployer_gates_the_exact_main_sha_and_health_version():
@@ -23,3 +25,17 @@ def test_runtime_image_contains_every_local_application_module():
 
     for module in ("main.py", "auth.py", "db.py", "mirror.py", "thumbs.py"):
         assert module in source, f"Docker runtime image does not copy {module}"
+
+
+def test_public_container_release_is_ci_gated_and_multi_arch():
+    workflow = CONTAINER_WORKFLOW.read_text(encoding="utf-8")
+    compose = PUBLIC_COMPOSE.read_text(encoding="utf-8")
+
+    assert "workflow_run:" in workflow
+    assert "github.event.workflow_run.conclusion == 'success'" in workflow
+    assert "github.event.workflow_run.head_branch == 'main'" in workflow
+    assert "ref: ${{ github.event.workflow_run.head_sha }}" in workflow
+    assert "platforms: linux/amd64,linux/arm64" in workflow
+    assert "ghcr.io/minionenjoyer/openshare" in workflow
+    assert "push-to-registry: true" in workflow
+    assert "ghcr.io/minionenjoyer/openshare:${OPENSHARE_VERSION:-latest}" in compose

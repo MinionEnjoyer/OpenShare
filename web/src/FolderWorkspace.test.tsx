@@ -10,7 +10,7 @@ const data: FolderWorkspaceData = {
   currentFolder: design,
   subfolders: [drafts],
   allFolders: [design, drafts, media],
-  appVersion: '0.2.34',
+  appVersion: '0.2.35',
   openChatConnected: true,
 };
 
@@ -110,7 +110,7 @@ describe('React folder workspace', () => {
 
     expect(document.documentElement.dataset.theme).toBe('dark');
     expect(window.localStorage.getItem('openshare-theme')).toBe('dark');
-    expect(screen.getByText('OpenShare v0.2.34')).toBeInTheDocument();
+    expect(screen.getByText('OpenShare v0.2.35')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('radio', { name: /Compact/ }));
     fireEvent.click(screen.getByRole('checkbox', { name: /Reduce animation/ }));
     expect(document.documentElement.dataset.folderDensity).toBe('compact');

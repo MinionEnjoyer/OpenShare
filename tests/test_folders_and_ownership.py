@@ -342,21 +342,34 @@ def test_search_and_public_folder_views_use_expected_visibility(harness: OpenSha
     assert missing.status_code == 404
 
 
-def test_search_suggestions_are_useful_and_owner_scoped(harness: OpenShareHarness):
-    create_folder(harness, "Launch Assets")
-    harness.upload(("summer-roadmap.png", PNG_1X1, "image/png"))
+def test_progressive_search_matches_are_useful_and_owner_scoped(harness: OpenShareHarness):
+    folder_id = create_folder(harness, "Launch Assets")
+    media_id = harness.upload(("summer-roadmap.png", PNG_1X1, "image/png")).json()["saved"][0]["id"]
     harness.upload(("private-roadmap.png", PNG_1X1, "image/png"), owner=OTHER_OWNER)
 
     suggested = harness.client.get(
         "/api/search/suggestions?q=road", headers=harness.owner_headers()
     )
+    folder_match = harness.client.get(
+        "/api/search/suggestions?q=launch", headers=harness.owner_headers()
+    )
+    too_short = harness.client.get(
+        "/api/search/suggestions?q=r", headers=harness.owner_headers()
+    )
     by_type = harness.client.get("/search?q=image", headers=harness.owner_headers())
 
     assert suggested.status_code == 200
     assert suggested.headers["cache-control"] == "private, max-age=30"
-    values = [entry["value"] for entry in suggested.json()["suggestions"]]
-    assert "summer-roadmap" in values
-    assert "private-roadmap" not in values
+    matches = suggested.json()["suggestions"]
+    assert matches == [{
+        "value": "summer-roadmap.png",
+        "label": "summer-roadmap.png",
+        "kind": "Images",
+        "count": 1,
+        "url": f"/i/{media_id}",
+    }]
+    assert folder_match.json()["suggestions"][0]["url"] == f"/folder/{folder_id}"
+    assert too_short.json() == {"suggestions": []}
     assert "summer-roadmap.png" in by_type.text
     assert "private-roadmap.png" not in by_type.text
 

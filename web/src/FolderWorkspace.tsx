@@ -536,7 +536,11 @@ export function FolderWorkspace({ data }: { data: FolderWorkspaceData }) {
 
   const parentHref = currentFolder?.parent_id ? `/folder/${encodeURIComponent(currentFolder.parent_id)}` : '/';
   return (
-    <section className="os-folder-workspace" aria-label="Folder workspace">
+    <section className="os-folder-workspace os-work-area os-folders-area" aria-labelledby="os-folders-title">
+      <header className="os-area-heading">
+        <div><span className="eyebrow">Organization</span><h2 id="os-folders-title">Folders</h2><p>{currentFolder ? `Folders inside ${currentFolder.name}.` : 'Keep related files together and easy to browse.'}</p></div>
+        <span className="os-area-count">{subfolders.length} {subfolders.length === 1 ? 'folder' : 'folders'}</span>
+      </header>
       <div className="os-folder-commandbar">
         <div className="os-command-primary">
           <button type="button" onClick={() => setTreeOpen(true)}><span aria-hidden="true">☷</span> Browse library</button>
@@ -570,6 +574,7 @@ export function FolderWorkspace({ data }: { data: FolderWorkspaceData }) {
           <span className="os-folder-card-icon" aria-hidden="true">↰</span><span className="os-folder-card-copy"><strong>Up one level</strong><small>{currentFolder.parent_id ? 'Parent folder' : 'Library root'}</small></span>
         </a>}
       </div>}
+      {subfolders.length === 0 && <div className="os-area-empty os-folder-empty"><span className="os-area-empty-mark" aria-hidden="true">/</span><strong>No folders in this area</strong><span>Create a folder to separate projects, collections, or shared content.</span></div>}
 
       {treeOpen && <TreeBrowser folders={allFolders} currentFolder={currentFolder} onClose={() => setTreeOpen(false)} />}
       {editing !== undefined && <FolderForm folder={editing} currentFolder={currentFolder} onClose={() => setEditing(undefined)} />}

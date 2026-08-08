@@ -85,42 +85,63 @@ export function LibraryApp({ data }: { data: LibraryData }) {
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); setMoving(false); }
   };
 
-  return <>
-    <nav className="crumbs" aria-label="Current location">
-      <a href="/" className={`crumb ${!data.currentFolder ? 'current' : ''}`}>All</a>
-      {data.breadcrumb.map((folder) => <span key={folder.id} className="os-crumb-part"><span className="crumb-sep">/</span><a href={`/folder/${encodeURIComponent(folder.id)}`} className={`crumb ${folder.id === data.currentFolder?.id ? 'current' : ''}`}>{folder.name}</a></span>)}
-    </nav>
-    {data.currentFolder && <section className="active-folder" style={{ '--folder-color': data.currentFolder.color } as CSSProperties} aria-label={`Current folder ${data.currentFolder.name}`}>
-      <span className="active-folder-orbit" aria-hidden="true"><span>{data.currentFolder.icon}</span></span>
-      <div><span className="eyebrow">Current folder</span><h1>{data.currentFolder.name}</h1></div>
-    </section>}
-    <section
-      className={`upload-zone ${dragging ? 'dragover' : ''} ${uploading ? 'busy' : ''}`}
-      onDragEnter={(event: DragEvent) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDragging(true); } }}
-      onDragOver={(event) => event.preventDefault()}
-      onDragLeave={(event) => { if (event.currentTarget === event.target) setDragging(false); }}
-      onDrop={(event) => { event.preventDefault(); setDragging(false); void upload(event.dataTransfer.files); }}
-    >
-      <div className="upload-main"><div className="upload-icon" aria-hidden="true">↑</div><div className="upload-prompt"><strong>Drop files here</strong><span className="muted">or</span><label className="btn primary"><input ref={inputRef} type="file" multiple hidden accept={uploadAccept} disabled={uploading} onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void upload(event.target.files); }} />Choose files</label></div><div className="upload-target muted">→ {data.currentFolder?.name ?? 'root'}</div></div>
-      {progress && <div className="progress muted" role="status"><Spinner size="sm" label="Uploading files" /> {progress}</div>}
-      {error && <div className="progress error" role="alert">{error}</div>}
+  const fileSectionTitle = data.currentFolder ? 'Files' : 'Unsorted files';
+  const fileSectionDescription = data.currentFolder
+    ? `Files stored directly in ${data.currentFolder.name}.`
+    : 'Files that have not been organized into a folder yet.';
+
+  return <div className="os-library-shell">
+    <header className="os-library-context">
+      <nav className="crumbs" aria-label="Current location">
+        <a href="/" className={`crumb ${!data.currentFolder ? 'current' : ''}`}>Library</a>
+        {data.breadcrumb.map((folder) => <span key={folder.id} className="os-crumb-part"><span className="crumb-sep">/</span><a href={`/folder/${encodeURIComponent(folder.id)}`} className={`crumb ${folder.id === data.currentFolder?.id ? 'current' : ''}`}>{folder.name}</a></span>)}
+      </nav>
+      {data.currentFolder ? <section className="active-folder" style={{ '--folder-color': data.currentFolder.color } as CSSProperties} aria-label={`Current folder ${data.currentFolder.name}`}>
+        <span className="active-folder-orbit" aria-hidden="true"><span>{data.currentFolder.icon}</span></span>
+        <div><span className="eyebrow">Current folder</span><h1>{data.currentFolder.name}</h1><p>{data.items.length} {data.items.length === 1 ? 'file' : 'files'} · {data.subfolders.length} {data.subfolders.length === 1 ? 'folder' : 'folders'}</p></div>
+      </section> : <div className="os-library-title"><span className="eyebrow">Personal library</span><h1>Your files</h1><p>Upload, organize, preview, and share from one workspace.</p></div>}
+    </header>
+
+    <section className="os-work-area os-upload-area" aria-labelledby="os-upload-title">
+      <header className="os-area-heading">
+        <div><span className="eyebrow">Add content</span><h2 id="os-upload-title">Upload files</h2><p>Drop files into the destination below or choose them from this device.</p></div>
+        <span className="os-area-count">Destination: {data.currentFolder?.name ?? 'Unsorted'}</span>
+      </header>
+      <div
+        className={`upload-zone ${dragging ? 'dragover' : ''} ${uploading ? 'busy' : ''}`}
+        onDragEnter={(event: DragEvent) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDragging(true); } }}
+        onDragOver={(event) => event.preventDefault()}
+        onDragLeave={(event) => { if (event.currentTarget === event.target) setDragging(false); }}
+        onDrop={(event) => { event.preventDefault(); setDragging(false); void upload(event.dataTransfer.files); }}
+      >
+        <div className="upload-main"><div className="upload-icon" aria-hidden="true"><span>↑</span></div><div className="upload-prompt"><strong>Drop files here</strong><span className="muted">or</span><label className="btn primary"><input ref={inputRef} type="file" multiple hidden accept={uploadAccept} disabled={uploading} onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void upload(event.target.files); }} />Choose files</label></div><div className="upload-target muted">Uploads will be saved to {data.currentFolder?.name ?? 'Unsorted'}</div></div>
+        {progress && <div className="progress muted" role="status"><Spinner size="sm" label="Uploading files" /> {progress}</div>}
+        {error && <div className="progress error" role="alert">{error}</div>}
+      </div>
     </section>
+
     <FolderWorkspace data={data} />
-    {data.items.length > 0 && <section className="grid" aria-label="Files">
-      {data.items.map((item) => <article className={`tile-wrap ${selected.has(item.id) ? 'selected' : ''}`} key={item.id}>
-        <a className="tile" href={item.viewUrl} title={item.name} onClick={(event) => openItem(event, item)}>
-          {item.thumbUrl ? <img src={item.thumbUrl} alt="" loading="lazy" /> : <span className="thumb-missing model-thumb"><span className="model-cube">{itemGlyph(item)}</span>{item.extension && <span className="model-ext">{item.extension}</span>}</span>}
-        </a>
-        <button className="select-check" type="button" aria-label={`${selected.has(item.id) ? 'Deselect' : 'Select'} ${item.name}`} aria-pressed={selected.has(item.id)} onClick={() => toggle(item.id)} />
-        <div className="tile-caption" title={item.name}>{item.name}</div>
-      </article>)}
-    </section>}
-    {!data.items.length && !data.subfolders.length && <p className="empty muted">Nothing here yet. Upload or create a folder above.</p>}
+
+    <section className="os-work-area os-files-area" aria-labelledby="os-files-title">
+      <header className="os-area-heading">
+        <div><span className="eyebrow">File workspace</span><h2 id="os-files-title">{fileSectionTitle}</h2><p>{fileSectionDescription}</p></div>
+        <span className="os-area-count">{data.items.length} {data.items.length === 1 ? 'file' : 'files'}</span>
+      </header>
+      {data.items.length > 0 ? <div className="grid" aria-label={fileSectionTitle}>
+        {data.items.map((item) => <article className={`tile-wrap ${selected.has(item.id) ? 'selected' : ''}`} key={item.id}>
+          <a className="tile" href={item.viewUrl} title={item.name} onClick={(event) => openItem(event, item)}>
+            {item.thumbUrl ? <img src={item.thumbUrl} alt="" loading="lazy" /> : <span className="thumb-missing model-thumb"><span className="model-cube">{itemGlyph(item)}</span>{item.extension && <span className="model-ext">{item.extension}</span>}</span>}
+          </a>
+          <button className="select-check" type="button" aria-label={`${selected.has(item.id) ? 'Deselect' : 'Select'} ${item.name}`} aria-pressed={selected.has(item.id)} onClick={() => toggle(item.id)} />
+          <div className="tile-caption" title={item.name}>{item.name}</div>
+        </article>)}
+      </div> : <div className="os-area-empty"><span className="os-area-empty-mark" aria-hidden="true">—</span><strong>No files in this area</strong><span>{data.currentFolder ? 'Upload files here or move existing files into this folder.' : 'New uploads appear here until you move them into a folder.'}</span></div>}
+    </section>
     {selected.size > 0 && <aside className="selection-bar" aria-label="Selected file actions">
       <span className="sel-count">{selected.size} selected</span>
       <label className="os-bulk-destination"><span className="sr-only">Move destination</span><select disabled={moving} defaultValue="__choose__" onChange={(event) => { if (event.target.value !== '__choose__') void bulkMove(event.target.value || null); }}><option value="__choose__">Move to…</option><option value="">Library root</option>{data.allFolders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>
       <button className="btn danger" type="button" disabled={moving} onClick={bulkDelete}>Delete</button>
       <button className="btn" type="button" disabled={moving} onClick={() => setSelected(new Set())}>Clear</button>
     </aside>}
-  </>;
+  </div>;
 }

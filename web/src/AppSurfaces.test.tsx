@@ -7,7 +7,7 @@ import type { LibraryData, MediaViewerData } from './types';
 
 const viewerData: MediaViewerData = {
   id: 'image-1', name: 'launch.png', mediaType: 'image', rawUrl: '/raw/image-1',
-  thumbUrl: '/thumb/image-1', ownerUsername: 'owner', sizeLabel: '32 KB', appVersion: '0.2.34',
+  thumbUrl: '/thumb/image-1', ownerUsername: 'owner', sizeLabel: '32 KB', appVersion: '0.2.35',
   canManage: true, backUrl: '/', deleteUrl: '/delete/image-1', shareUrl: '/media/image-1/shares',
   waveformUrl: null, textBody: null, textLanguage: null, textTruncated: false,
   modelExtension: null, modelMaterial: null,
@@ -19,20 +19,24 @@ const libraryData: LibraryData = {
   allFolders: [{ id: 'design', parent_id: null, name: 'Design', color: '#3298ff', icon: 'D' }],
   breadcrumb: [],
   items: [{ id: 'image-1', name: 'launch.png', mediaType: 'image', thumbUrl: '/thumb/image-1', viewUrl: '/i/image-1', extension: 'PNG' }],
-  appVersion: '0.2.34', openChatConnected: false,
+  appVersion: '0.2.35', openChatConnected: false,
 };
 
 describe('React application surfaces', () => {
-  it('shows owner-scoped search suggestions with keyboard selection state', async () => {
+  it('progressively shows owner-scoped library matches after typing', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
-      suggestions: [{ value: 'launch', label: 'Launch', kind: 'Keyword', count: 2 }],
+      suggestions: [{ value: 'launch.png', label: 'launch.png', kind: 'Images', count: 1, url: '/i/image-1' }],
     }), { status: 200 }));
     render(<SearchBar />);
 
     const input = screen.getByRole('combobox', { name: 'Search your library' });
     fireEvent.focus(input);
-    const option = await screen.findByRole('option', { name: /Launch/ });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: 'lau' } });
+    const option = await screen.findByRole('option', { name: /launch\.png/ });
     expect(input).toHaveAttribute('aria-expanded', 'true');
+    expect(globalThis.fetch).toHaveBeenCalledWith('/api/search/suggestions?q=lau', expect.objectContaining({ credentials: 'same-origin' }));
+    expect(screen.getByRole('option', { name: /Search all for “lau”/ })).toBeInTheDocument();
     fireEvent.keyDown(input, { key: 'ArrowDown' });
     expect(option).toHaveAttribute('aria-selected', 'true');
   });
@@ -47,7 +51,7 @@ describe('React application surfaces', () => {
     Object.defineProperty(image, 'naturalHeight', { configurable: true, value: 800 });
     fireEvent.load(image);
     expect(screen.getByRole('img', { name: 'launch.png' })).toBeVisible();
-    expect(screen.getByText('OpenShare v0.2.34')).toBeInTheDocument();
+    expect(screen.getByText('OpenShare v0.2.35')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Share' }));
     expect(await screen.findByText('Share link created and saved')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith('/media/image-1/shares', { method: 'POST', credentials: 'same-origin' });
@@ -60,5 +64,8 @@ describe('React application surfaces', () => {
     const file = screen.getByRole('link', { name: 'launch.png' });
     expect(upload.compareDocumentPosition(folder) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(folder.compareDocumentPosition(file) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Folders' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Unsorted files' })).toBeInTheDocument();
+    expect(screen.getByText('Files that have not been organized into a folder yet.')).toBeInTheDocument();
   });
 });

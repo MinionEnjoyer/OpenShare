@@ -1,0 +1,11 @@
+services:
+  openshare:
+    image: ghcr.io/minionenjoyer/openshare:${OPENSHARE_VERSION:-latest}
+    container_name: openshare
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8800}:8000"
+    env_file: .env
+    volumes:
+      - ${DB_PATH:-./data}:/data
+      - ${STORAGE_PATH:-./storage}:${STORAGE_ROOT:-/srv/openshare}

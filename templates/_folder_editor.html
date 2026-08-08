@@ -1,0 +1,53 @@
+{% macro appearance_fields(prefix, color, icon) %}
+<div class="folder-appearance" data-folder-appearance>
+  <fieldset class="folder-options color-control">
+    <legend>Folder color</legend>
+    <input type="hidden" name="color" value="{{ color }}" data-color-value>
+    <div class="color-control-main">
+      <input type="color" value="{{ color }}" data-color-well aria-label="Choose folder color">
+      <label>Hex <input type="text" value="{{ color }}" maxlength="7" pattern="#[0-9A-Fa-f]{6}" data-color-hex aria-label="Folder color hex value"></label>
+    </div>
+    <div class="rgb-inputs" aria-label="RGB folder color values">
+      <label>R <input type="number" min="0" max="255" inputmode="numeric" data-rgb="r"></label>
+      <label>G <input type="number" min="0" max="255" inputmode="numeric" data-rgb="g"></label>
+      <label>B <input type="number" min="0" max="255" inputmode="numeric" data-rgb="b"></label>
+    </div>
+  </fieldset>
+  <fieldset class="folder-options emoji-control" data-emoji-picker>
+    <legend>Folder icon</legend>
+    <input type="hidden" name="icon" value="{{ icon }}" data-emoji-value>
+    <button class="emoji-picker-trigger" type="button" data-emoji-trigger aria-expanded="false" aria-controls="{{ prefix }}-emoji-popout">
+      <span data-emoji-current aria-hidden="true">{{ icon }}</span>
+      <span>Choose emoji</span>
+    </button>
+    <div class="emoji-popout" id="{{ prefix }}-emoji-popout" data-emoji-popout hidden>
+      <input type="search" placeholder="Search emoji" autocomplete="off" data-emoji-search aria-label="Search folder emoji">
+      <div class="emoji-grid" role="listbox" aria-label="Folder emoji">
+        {% for choice in folder_emojis %}
+        <button type="button" class="emoji-option" role="option" data-emoji="{{ choice.emoji }}" data-label="{{ choice.label|lower }}" aria-label="{{ choice.label }}" aria-selected="{{ 'true' if choice.emoji == icon else 'false' }}">{{ choice.emoji }}</button>
+        {% endfor %}
+      </div>
+      <p class="emoji-empty muted" data-emoji-empty hidden>No matching emoji</p>
+    </div>
+  </fieldset>
+</div>
+{% endmacro %}
+
+{% macro edit_dialog(folder, stay) %}
+<dialog class="folder-edit-dialog" id="folder-edit-{{ folder.id }}">
+  <form action="/folders/{{ folder.id }}/update" method="post" class="folder-edit-form" data-folder-form data-loading="Saving folder…" data-async-form>
+    <input type="hidden" name="stay" value="{{ stay }}">
+    <div class="folder-create-heading">
+      <span class="folder-create-preview" style="--folder-color: {{ folder.color }}" data-folder-preview aria-hidden="true">{{ folder.icon }}</span>
+      <div><span class="eyebrow">Edit folder</span><h3>{{ folder.name }}</h3></div>
+    </div>
+    <label class="field-label" for="folder-name-{{ folder.id }}">Folder name</label>
+    <input id="folder-name-{{ folder.id }}" type="text" name="name" value="{{ folder.name }}" maxlength="120" required>
+    {{ appearance_fields('edit-' ~ folder.id, folder.color, folder.icon) }}
+    <div class="folder-create-actions">
+      <button class="btn" type="button" data-dialog-close>Cancel</button>
+      <button class="btn primary" type="submit">Save changes</button>
+    </div>
+  </form>
+</dialog>
+{% endmacro %}

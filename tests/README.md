@@ -31,12 +31,18 @@ response = harness.client.post(
 `OTHER_OWNER` makes ownership-isolation tests concise. Requests without either identity remain
 anonymous and exercise the real 401 path.
 
+The security suite also covers canonical origin handling for case, trailing slashes, and default
+ports while continuing to reject missing and cross-origin mutation requests. Folder coverage
+includes arbitrary six-digit RGB colors, the searchable emoji catalog, owner-only updates to
+existing folders, safe post-edit return targets, the directory-tree builder, and the client-side
+edit-mode toggle.
+
 ## Test groups
 
 - `pytest -m unit` runs pure classification, configuration, and helper tests.
 - `pytest -m integration` runs the ASGI/SQLite/storage harness.
 - `pytest --cov` enforces the branch-coverage threshold configured in `pyproject.toml`.
-- `make test-js` runs browser loading, navigation-timeout, and failure-recovery contracts with
+- `make test-js` runs folder controls, browser loading, navigation-timeout, and failure-recovery contracts with
   Node's built-in test runner and no third-party JavaScript test dependencies.
 - `make test-ops` syntax-checks the CI-gated systemd deployment scaffold.
 

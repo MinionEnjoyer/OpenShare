@@ -3,6 +3,7 @@ import hashlib
 import json
 import mimetypes
 import os
+import re
 import secrets
 import shutil
 import zipfile
@@ -227,8 +228,29 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-Share-User-Sub", "X-Share-User-Name"],
 )
 
-public_origin = f"{urlsplit(PUBLIC_URL).scheme}://{urlsplit(PUBLIC_URL).netloc}"
-trusted_origins = {public_origin, *ALLOWED_ORIGINS, *NATIVE_ORIGINS}
+def normalize_origin(value: str) -> str:
+    """Return a canonical, origin-only URL or an empty string when invalid."""
+    try:
+        parsed = urlsplit(value.strip())
+        if parsed.scheme not in {"http", "https", "tauri"} or not parsed.hostname:
+            return ""
+        if parsed.username or parsed.password or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+            return ""
+        host = parsed.hostname.lower()
+        port = parsed.port
+        if port and not ((parsed.scheme == "http" and port == 80) or (parsed.scheme == "https" and port == 443)):
+            host = f"{host}:{port}"
+        return f"{parsed.scheme.lower()}://{host}"
+    except ValueError:
+        return ""
+
+
+public_origin = normalize_origin(PUBLIC_URL)
+trusted_origins = {
+    origin
+    for value in (PUBLIC_URL, *ALLOWED_ORIGINS, *NATIVE_ORIGINS)
+    if (origin := normalize_origin(value))
+}
 
 
 @app.middleware("http")
@@ -238,7 +260,7 @@ async def security_boundary(request: Request, call_next):
         service_upload = request.url.path in {"/upload", "/waveform", "/api/assets"} and authorization.startswith("Bearer ")
         mirror_transfer = request.url.path == "/mirror/v1/assets" and bool(request.headers.get("x-openshare-node"))
         if not service_upload and not mirror_transfer:
-            origin = request.headers.get("origin", "")
+            origin = normalize_origin(request.headers.get("origin", ""))
             if origin not in trusted_origins:
                 return JSONResponse({"detail": "untrusted request origin"}, status_code=403)
     response = await call_next(request)
@@ -388,6 +410,7 @@ async def _render_owner_view(request, user, folder):
             "subfolders": subfolders,
             "items": items,
             "all_folders": all_folders,
+            "folder_emojis": FOLDER_EMOJIS,
             "public_url": PUBLIC_URL,
         },
     )
@@ -440,15 +463,35 @@ async def auth_logout(request: Request):
 
 # ---------- Folders ----------
 
-FOLDER_COLORS = (
-    "#4f9cf9", "#18c9a7", "#8b7cf6", "#ef6f91",
-    "#f6a94a", "#e5cb5c", "#6bc86d", "#aab2c4",
+FOLDER_EMOJIS = (
+    {"emoji": "📁", "label": "Folder"}, {"emoji": "📷", "label": "Camera"},
+    {"emoji": "🎨", "label": "Art"}, {"emoji": "🎵", "label": "Music"},
+    {"emoji": "🎬", "label": "Film"}, {"emoji": "📚", "label": "Books"},
+    {"emoji": "💼", "label": "Work"}, {"emoji": "🧪", "label": "Science"},
+    {"emoji": "⭐", "label": "Star"}, {"emoji": "🗃️", "label": "Archive"},
+    {"emoji": "🏠", "label": "Home"}, {"emoji": "🌎", "label": "World"},
+    {"emoji": "🚀", "label": "Rocket"}, {"emoji": "💡", "label": "Ideas"},
+    {"emoji": "💬", "label": "Chat"}, {"emoji": "❤️", "label": "Heart"},
+    {"emoji": "🔥", "label": "Fire"}, {"emoji": "✨", "label": "Sparkles"},
+    {"emoji": "🎮", "label": "Games"}, {"emoji": "💻", "label": "Code"},
+    {"emoji": "🛠️", "label": "Tools"}, {"emoji": "🔒", "label": "Private"},
+    {"emoji": "🛒", "label": "Shopping"}, {"emoji": "🍽️", "label": "Food"},
+    {"emoji": "🐾", "label": "Pets"}, {"emoji": "✈️", "label": "Travel"},
+    {"emoji": "🏋️", "label": "Fitness"}, {"emoji": "🌿", "label": "Nature"},
+    {"emoji": "📅", "label": "Calendar"}, {"emoji": "🏆", "label": "Trophy"},
+    {"emoji": "🎁", "label": "Gifts"}, {"emoji": "💰", "label": "Finance"},
+    {"emoji": "📝", "label": "Notes"}, {"emoji": "🔖", "label": "Bookmarks"},
+    {"emoji": "🧭", "label": "Explore"}, {"emoji": "☁️", "label": "Cloud"},
+    {"emoji": "🌙", "label": "Night"}, {"emoji": "☀️", "label": "Day"},
+    {"emoji": "🎓", "label": "Education"}, {"emoji": "🧰", "label": "Projects"},
 )
-FOLDER_ICONS = ("📁", "📷", "🎨", "🎵", "🎬", "📚", "💼", "🧪", "⭐", "🗃️")
+FOLDER_ICONS = frozenset(choice["emoji"] for choice in FOLDER_EMOJIS)
+FOLDER_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
 def validate_folder_appearance(color: str, icon: str) -> tuple[str, str]:
-    if color not in FOLDER_COLORS:
+    color = color.strip().lower()
+    if not FOLDER_COLOR_RE.fullmatch(color):
         raise HTTPException(400, detail="invalid folder color")
     if icon not in FOLDER_ICONS:
         raise HTTPException(400, detail="invalid folder icon")
@@ -489,6 +532,30 @@ async def rename_folder(
     if not ok:
         raise HTTPException(400)
     return RedirectResponse(url=f"/folder/{folder_id}", status_code=303)
+
+
+@app.post("/folders/{folder_id}/update")
+async def update_folder(
+    folder_id: str,
+    name: str = Form(...),
+    color: str = Form(...),
+    icon: str = Form(...),
+    stay: str = Form("parent"),
+    user: dict = Depends(require_user),
+):
+    folder = await _owner_folder(folder_id, user["sub"])
+    name = name.strip()
+    if not name:
+        raise HTTPException(400, detail="name required")
+    color, icon = validate_folder_appearance(color, icon)
+    if stay not in {"self", "parent"}:
+        raise HTTPException(400, detail="invalid return target")
+    ok = await db.folder_update(folder_id, user["sub"], name, color, icon)
+    if not ok:
+        raise HTTPException(400, detail="could not update folder")
+    parent = folder["parent_id"]
+    target = f"/folder/{folder_id}" if stay == "self" else (f"/folder/{parent}" if parent else "/")
+    return RedirectResponse(url=target, status_code=303)
 
 
 @app.post("/folders/{folder_id}/delete")

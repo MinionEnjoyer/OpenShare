@@ -354,6 +354,22 @@ async def folder_rename(folder_id: str, owner_sub: str, name: str) -> bool:
         return cur.rowcount > 0
 
 
+async def folder_update(
+    folder_id: str,
+    owner_sub: str,
+    name: str,
+    color: str,
+    icon: str,
+) -> bool:
+    async with connect_db() as db:
+        cur = await db.execute(
+            "UPDATE folders SET name=?, color=?, icon=? WHERE id=? AND owner_sub=?",
+            (name.strip()[:120], color, icon, folder_id, owner_sub),
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
 async def folder_delete(folder_id: str, owner_sub: str) -> bool:
     """Re-parent direct children (subfolders + media) up to this folder's parent, then delete."""
     async with connect_db() as db:

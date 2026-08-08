@@ -21,7 +21,8 @@ If OpenShare is useful to you, project support is available through
 - **Automatic thumbnails** for images, video frames, PDFs, and 3D models; audio uploads get a
   stored **waveform** (audio-level peaks) + duration, served at `/waveform/<id>`.
 - **Content-hash de-duplication** — the same file uploaded twice is stored once.
-- **Folders** with nesting, rename, move, and bulk actions.
+- **Folders** with nesting, bulk actions, a full directory-tree browser, custom RGB colors,
+  searchable emoji icons, and a focused edit mode for updating existing folders.
 - **Clean share links** — `/(i|v|au|d|t|m|a)/‹id›` viewer URLs plus `/raw` and `/thumb` for direct bytes.
 - **SSO** via any OpenID Connect provider (Authentik, Keycloak, …); sessions are cookie-based.
 - **Embeds anywhere** — set `ALLOWED_ORIGINS` so a trusted client (e.g. your OpenChat) can upload
@@ -32,7 +33,7 @@ If OpenShare is useful to you, project support is available through
 FastAPI (Python 3.12) · SQLite · Authlib (OIDC) · Pillow / ffmpeg / poppler / pyrender for
 thumbnails · Jinja2 templates. Ships as a single Docker image.
 
-The current OpenShare release is **0.2.1**. The canonical value lives in [`VERSION`](VERSION), is
+The current OpenShare release is **0.2.2**. The canonical value lives in [`VERSION`](VERSION), is
 shown in the web footer, and is returned by `GET /health` so operators can verify the active build.
 
 ## Quick start

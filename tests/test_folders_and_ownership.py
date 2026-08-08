@@ -66,10 +66,10 @@ def test_create_folder_failure_returns_a_useful_error(monkeypatch, harness: Open
 
 
 def test_folder_appearance_is_validated_and_persisted(harness: OpenShareHarness):
-    folder_id = create_folder(harness, "Photography", color="#18c9a7", icon="📷")
+    folder_id = create_folder(harness, "Photography", color="#12AbEf", icon="📷")
     folder = run(db.folder_get(folder_id))
 
-    assert folder["color"] == "#18c9a7"
+    assert folder["color"] == "#12abef"
     assert folder["icon"] == "📷"
 
     invalid = harness.client.post(
@@ -81,6 +81,46 @@ def test_folder_appearance_is_validated_and_persisted(harness: OpenShareHarness)
     assert invalid.json() == {"detail": "invalid folder color"}
 
 
+def test_edit_folder_updates_name_color_and_emoji(harness: OpenShareHarness):
+    folder_id = create_folder(harness, "Draft")
+
+    response = harness.client.post(
+        f"/folders/{folder_id}/update",
+        headers=harness.owner_headers(),
+        data={"name": "Published", "color": "#c83cff", "icon": "🚀", "stay": "self"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/folder/{folder_id}"
+    updated = run(db.folder_get(folder_id))
+    assert updated["name"] == "Published"
+    assert updated["color"] == "#c83cff"
+    assert updated["icon"] == "🚀"
+
+
+def test_edit_folder_is_owner_scoped_and_validates_return_target(harness: OpenShareHarness):
+    folder_id = create_folder(harness, "Private")
+    payload = {"name": "Changed", "color": "#112233", "icon": "📁", "stay": "parent"}
+
+    denied = harness.client.post(
+        f"/folders/{folder_id}/update",
+        headers=harness.owner_headers(OTHER_OWNER),
+        data=payload,
+        follow_redirects=False,
+    )
+    invalid_target = harness.client.post(
+        f"/folders/{folder_id}/update",
+        headers=harness.owner_headers(),
+        data=payload | {"stay": "https://evil.example"},
+        follow_redirects=False,
+    )
+
+    assert denied.status_code == 404
+    assert invalid_target.status_code == 400
+    assert run(db.folder_get(folder_id))["name"] == "Private"
+
+
 def test_folder_page_renders_creation_surface_and_active_orbit(harness: OpenShareHarness):
     folder_id = create_folder(harness, "Design", color="#8b7cf6", icon="🎨")
     response = harness.client.get(f"/folder/{folder_id}", headers=harness.owner_headers())
@@ -89,6 +129,13 @@ def test_folder_page_renders_creation_surface_and_active_orbit(harness: OpenShar
     assert 'class="folder-create-panel"' in response.text
     assert 'name="color"' in response.text
     assert 'name="icon"' in response.text
+    assert 'data-color-well' in response.text
+    assert 'data-rgb="r"' in response.text
+    assert 'data-emoji-search' in response.text
+    assert 'id="folder-edit-toggle"' in response.text
+    assert 'id="folder-tree-dialog"' in response.text
+    assert 'data-folder-tree-source' in response.text
+    assert f'action="/folders/{folder_id}/update"' in response.text
     assert 'class="active-folder"' in response.text
     assert 'style="--folder-color: #8b7cf6"' in response.text
     assert "🎨" in response.text

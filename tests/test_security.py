@@ -86,6 +86,47 @@ def test_cross_origin_mutation_is_rejected(harness: OpenShareHarness):
     assert response.status_code == 403
 
 
+@pytest.mark.integration
+def test_normalized_same_origin_mutation_is_allowed(harness: OpenShareHarness):
+    response = harness.client.post(
+        "/folders",
+        headers={
+            "origin": "HTTPS://SHARE.EXAMPLE.TEST:443/",
+            "x-test-owner-sub": "owner-1",
+            "x-test-owner-name": "owner",
+        },
+        data={"name": "Normalized Origin"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+
+@pytest.mark.integration
+def test_missing_origin_mutation_is_rejected(harness: OpenShareHarness):
+    response = harness.client.post(
+        "/folders",
+        headers={"x-test-owner-sub": "owner-1", "x-test-owner-name": "owner"},
+        data={"name": "No Origin"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("HTTPS://Share.Example.Test:443/", "https://share.example.test"),
+        ("http://share.example.test:80", "http://share.example.test"),
+        ("https://share.example.test:8443", "https://share.example.test:8443"),
+        ("https://share.example.test/path", ""),
+        ("https://user@share.example.test", ""),
+    ],
+)
+def test_origin_normalization(value, expected):
+    assert main.normalize_origin(value) == expected
+
+
 @pytest.mark.unit
 def test_uploaded_html_is_served_as_plain_text(monkeypatch, tmp_path: Path):
     html = tmp_path / "payload.html"

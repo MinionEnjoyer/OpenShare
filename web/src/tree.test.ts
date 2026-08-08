@@ -22,7 +22,22 @@ describe('folder tree model', () => {
   it('flattens only expanded branches outside search mode', () => {
     const forest = buildFolderForest(folders);
     expect(flattenVisibleTree(forest, new Set()).map((folder) => folder.id)).toEqual(['archive', 'design']);
-    expect(flattenVisibleTree(forest, new Set(['design'])).map((folder) => folder.id)).toEqual(['archive', 'design', 'drafts']);
+    const rows = flattenVisibleTree(forest, new Set(['design']));
+    expect(rows.map((folder) => folder.id)).toEqual(['archive', 'design', 'drafts']);
+    expect(rows.map(({ id, depth, isLast, ancestorContinuations }) => ({ id, depth, isLast, ancestorContinuations }))).toEqual([
+      { id: 'archive', depth: 0, isLast: false, ancestorContinuations: [] },
+      { id: 'design', depth: 0, isLast: true, ancestorContinuations: [] },
+      { id: 'drafts', depth: 1, isLast: true, ancestorContinuations: [false] },
+    ]);
+  });
+
+  it('keeps ancestor continuation lines when a branch has later siblings', () => {
+    const moreFolders: Folder[] = [
+      ...folders,
+      { id: 'z-last', parent_id: null, name: 'Z Last', color: '#ffffff', icon: 'Z' },
+    ];
+    const rows = flattenVisibleTree(buildFolderForest(moreFolders), new Set(['design']));
+    expect(rows.find((folder) => folder.id === 'drafts')?.ancestorContinuations).toEqual([true]);
   });
 
   it('finds the current folder ancestry', () => {

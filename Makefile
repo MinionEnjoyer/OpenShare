@@ -1,12 +1,9 @@
 PYTHON ?= python3
 
-.PHONY: test test-js test-web test-web-build test-ops test-unit test-integration test-cov lint audit verify
+.PHONY: test test-web test-web-build test-ops test-unit test-integration test-cov lint audit verify
 
 test:
 	$(PYTHON) -m pytest
-
-test-js:
-	node --test tests/js/*.test.cjs
 
 test-web:
 	npm --prefix web test
@@ -32,4 +29,4 @@ lint:
 audit:
 	$(PYTHON) -m pip_audit -r requirements.txt
 
-verify: lint test-cov test-js test-web test-web-build test-ops audit
+verify: lint test-cov test-web test-web-build test-ops audit

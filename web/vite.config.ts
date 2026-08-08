@@ -10,10 +10,10 @@ export default defineConfig({
     rollupOptions: {
       input: 'src/main.tsx',
       output: {
-        entryFileNames: 'assets/folder-workspace.js',
+        entryFileNames: 'assets/openshare.js',
         chunkFileNames: 'assets/[name]-[hash].js',
         assetFileNames: (asset) => asset.name?.endsWith('.css')
-          ? 'assets/folder-workspace.css'
+          ? 'assets/openshare.css'
           : 'assets/[name]-[hash][extname]',
       },
     },

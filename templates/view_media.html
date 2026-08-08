@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}{{ item.original_name }} — OpenShare{% endblock %}
+{% block meta %}
+<meta property="og:title" content="{{ item.original_name }}">
+<meta property="og:type" content="{% if item.media_type == 'image' %}image{% elif item.media_type == 'video' %}video{% elif item.media_type == 'audio' %}music.song{% else %}article{% endif %}">
+{% if item.media_type == 'image' %}<meta property="og:image" content="{{ public_url }}/raw/{{ item.id }}">{% endif %}
+{% if item.media_type == 'video' %}<meta property="og:video" content="{{ public_url }}/raw/{{ item.id }}">{% endif %}
+{% if item.media_type == 'audio' %}<meta property="og:audio" content="{{ public_url }}/raw/{{ item.id }}">{% endif %}
+{% if item.thumb_path %}<meta property="og:image" content="{{ public_url }}/thumb/{{ item.id }}">{% endif %}
+<meta property="og:url" content="{{ public_url }}{{ viewer_path }}">
+{% if item.media_type in ('image', 'video') %}<meta name="twitter:card" content="summary_large_image">{% endif %}
+{% if item.media_type == 'model' %}
+<script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}</script>
+<script type="module" src="/static/model-viewer.js"></script>
+{% endif %}
+{% endblock %}
+{% block content %}
+<div id="media-viewer-root"></div>
+<script id="media-viewer-data" type="application/json">{{ viewer_data|tojson }}</script>
+<noscript><p class="page-error">This viewer requires JavaScript. <a href="/raw/{{ item.id }}">Open the original file</a>.</p></noscript>
+{% endblock %}
+{% block footer %}{% endblock %}

@@ -238,13 +238,12 @@ def test_folder_page_renders_react_workspace_data_and_active_orbit(harness: Open
     assert response.status_code == 200
     assert 'id="folder-workspace"' in response.text
     assert 'id="folder-workspace-data"' in response.text
-    assert '/static/react/assets/folder-workspace.js' in response.text
-    assert '/static/react/assets/folder-workspace.css' in response.text
+    assert '/static/react/assets/openshare.js' in response.text
+    assert '/static/react/assets/openshare.css' in response.text
     assert '"currentFolder"' in response.text
     assert '"allFolders"' in response.text
-    assert 'class="active-folder"' in response.text
-    assert 'style="--folder-color: #8b7cf6"' in response.text
-    assert "🎨" in response.text
+    assert '"color": "#8b7cf6"' in response.text
+    assert '"icon"' in response.text
 
 
 def test_folder_access_is_owner_scoped(harness: OpenShareHarness):
@@ -340,4 +339,47 @@ def test_search_and_public_folder_views_use_expected_visibility(harness: OpenSha
     assert public.status_code == 200
     assert "Launch Assets" in public.text
     assert "roadmap.txt" in public.text
+    assert missing.status_code == 404
+
+
+def test_search_suggestions_are_useful_and_owner_scoped(harness: OpenShareHarness):
+    create_folder(harness, "Launch Assets")
+    harness.upload(("summer-roadmap.png", PNG_1X1, "image/png"))
+    harness.upload(("private-roadmap.png", PNG_1X1, "image/png"), owner=OTHER_OWNER)
+
+    suggested = harness.client.get(
+        "/api/search/suggestions?q=road", headers=harness.owner_headers()
+    )
+    by_type = harness.client.get("/search?q=image", headers=harness.owner_headers())
+
+    assert suggested.status_code == 200
+    assert suggested.headers["cache-control"] == "private, max-age=30"
+    values = [entry["value"] for entry in suggested.json()["suggestions"]]
+    assert "summer-roadmap" in values
+    assert "private-roadmap" not in values
+    assert "summer-roadmap.png" in by_type.text
+    assert "private-roadmap.png" not in by_type.text
+
+
+def test_media_share_links_are_recorded_listed_opened_and_revoked(harness: OpenShareHarness):
+    media_id = harness.upload(("share-me.png", PNG_1X1, "image/png")).json()["saved"][0]["id"]
+
+    created = harness.client.post(
+        f"/media/{media_id}/shares", headers=harness.owner_headers()
+    )
+    payload = created.json()
+    listed = harness.client.get("/api/share-links", headers=harness.owner_headers())
+    opened = harness.client.get(f"/ms/{payload['id']}", follow_redirects=False)
+    revoked = harness.client.post(
+        f"/shares/{payload['id']}/revoke", headers=harness.owner_headers()
+    )
+    missing = harness.client.get(f"/ms/{payload['id']}")
+
+    assert created.status_code == 200
+    assert payload["url"].endswith(f"/ms/{payload['id']}")
+    assert listed.json()[0]["resourceName"] == "share-me.png"
+    assert listed.json()[0]["resourceType"] == "image"
+    assert opened.status_code == 307
+    assert opened.headers["location"] == f"/i/{media_id}"
+    assert revoked.json() == {"revoked": True}
     assert missing.status_code == 404

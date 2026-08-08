@@ -70,15 +70,16 @@ export function flattenVisibleTree(
   visibleIds: Set<string> | null = null,
 ): FlatFolderNode[] {
   const rows: FlatFolderNode[] = [];
-  const walk = (nodes: FolderNode[], depth: number, parentId: string | null) => {
-    nodes.forEach((node) => {
-      if (visibleIds && !visibleIds.has(node.id)) return;
-      rows.push({ ...node, depth, parentId });
+  const walk = (nodes: FolderNode[], depth: number, parentId: string | null, ancestorContinuations: boolean[]) => {
+    const visibleNodes = visibleIds ? nodes.filter((node) => visibleIds.has(node.id)) : nodes;
+    visibleNodes.forEach((node, index) => {
+      const isLast = index === visibleNodes.length - 1;
+      rows.push({ ...node, depth, parentId, ancestorContinuations, isLast });
       if (node.children.length && (expanded.has(node.id) || visibleIds)) {
-        walk(node.children, depth + 1, node.id);
+        walk(node.children, depth + 1, node.id, [...ancestorContinuations, !isLast]);
       }
     });
   };
-  walk(roots, 0, null);
+  walk(roots, 0, null, []);
   return rows;
 }

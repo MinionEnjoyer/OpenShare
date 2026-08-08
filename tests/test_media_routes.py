@@ -48,10 +48,23 @@ def test_text_view_escapes_active_content_and_raw_is_plain_text(harness: OpenSha
     raw = harness.client.get(f"/raw/{media_id}")
 
     assert viewer.status_code == 200
-    assert "&lt;script&gt;" in viewer.text
+    assert r"\u003cscript\u003ewindow.pwned = true\u003c/script\u003e" in viewer.text
     assert "<script>window.pwned" not in viewer.text
     assert raw.headers["content-type"].startswith("text/plain")
     assert raw.content == payload
+
+
+def test_every_media_type_uses_the_shared_react_viewer_shell(harness: OpenShareHarness):
+    media_id = harness.upload(("photo.png", PNG_1X1, "image/png")).json()["saved"][0]["id"]
+
+    response = harness.client.get(f"/i/{media_id}", headers=harness.owner_headers())
+
+    assert response.status_code == 200
+    assert 'id="media-viewer-root"' in response.text
+    assert 'id="media-viewer-data"' in response.text
+    assert '"canManage"' in response.text
+    assert '/static/react/assets/openshare.js' in response.text
+    assert '<footer class="app-version"' not in response.text
 
 
 def test_audio_upload_exposes_stored_waveform(harness: OpenShareHarness):

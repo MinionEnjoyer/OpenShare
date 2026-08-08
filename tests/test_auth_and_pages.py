@@ -52,14 +52,12 @@ def test_logged_in_home_renders_gallery(monkeypatch, harness: OpenShareHarness):
     response = harness.client.get("/")
 
     assert response.status_code == 200
-    assert "Drop files here" in response.text
     assert 'id="folder-workspace"' in response.text
     assert 'id="folder-workspace-data"' in response.text
-    assert '/static/react/assets/folder-workspace.js' in response.text
-    assert "OpenShareLoading.navigateWithBusy" in response.text
+    assert '/static/react/assets/openshare.js' in response.text
+    assert '"items"' in response.text
     assert f"OpenShare v{main.APP_VERSION}" in response.text
     assert "Sign in" not in response.text
-    assert response.text.index('id="dropzone"') < response.text.index('id="folder-workspace"')
     assert '<footer class="app-version"' in response.text
 
 
@@ -98,7 +96,7 @@ def test_callback_establishes_session_and_logout_clears_it(monkeypatch, harness:
 
     assert callback.status_code == 302
     assert callback.headers["location"] == "/"
-    assert "Drop files here" in authenticated_home.text
+    assert 'id="folder-workspace"' in authenticated_home.text
     assert response.status_code == 302
     assert response.headers["location"] == "/"
     assert "session=null" in response.headers.get("set-cookie", "")

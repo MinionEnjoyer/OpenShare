@@ -130,6 +130,33 @@ def test_concurrent_writes_complete_without_database_locked(harness: OpenShareHa
     assert run(db.owner_storage_bytes(OWNER["sub"])) == sum(range(1, 21))
 
 
+def test_owner_library_snapshot_reuses_one_connection(harness: OpenShareHarness, monkeypatch):
+    run(db.folder_create("parent", OWNER["sub"], "Parent", None))
+    run(db.folder_create("child", OWNER["sub"], "Child", "parent"))
+    row = media_row(1)
+    row["folder_id"] = "parent"
+    run(db.insert_media(row))
+
+    real_connect = db.connect_db
+    connection_count = 0
+
+    def counted_connect():
+        nonlocal connection_count
+        connection_count += 1
+        return real_connect()
+
+    monkeypatch.setattr(db, "connect_db", counted_connect)
+    snapshot = run(db.owner_library_snapshot(OWNER["sub"], "parent"))
+
+    assert connection_count == 1
+    assert [item["id"] for item in snapshot["items"]] == [row["id"]]
+    assert [folder["id"] for folder in snapshot["subfolders"]] == ["child"]
+    assert snapshot["breadcrumb"] == [{"id": "parent", "name": "Parent"}]
+    assert {folder["id"] for folder in snapshot["all_folders"]} == {"parent", "child"}
+    assert snapshot["storage_bytes"] == row["size_bytes"]
+    assert snapshot["preview_images"] == {}
+
+
 def test_search_is_case_insensitive_and_owner_scoped(harness: OpenShareHarness):
     first = media_row(1)
     first["original_name"] = "Quarterly-REPORT.txt"

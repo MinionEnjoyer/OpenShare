@@ -16,8 +16,11 @@ type DialogProps = {
 
 type ShareLink = {
   id: string;
-  folderId: string;
-  folderName: string;
+  folderId: string | null;
+  mediaId?: string | null;
+  folderName: string | null;
+  resourceName?: string;
+  resourceType?: string;
   url: string;
   createdAt: string;
   revokedAt: string | null;
@@ -156,19 +159,18 @@ function TreeBrowser({ folders, currentFolder, onClose }: {
   };
 
   return (
-    <Dialog title="Browse library" description="A focused view of every folder and its contents." className="os-tree-dialog" onClose={onClose}>
-      <div className="os-explorer-shell">
-        <aside className="os-explorer-sidebar" aria-label="Library summary">
-          <span className="eyebrow">Locations</span>
-          <a href="/" className={!currentFolder ? 'is-current' : ''}><span aria-hidden="true">⌂</span><span><strong>All files</strong><small>Library root</small></span></a>
-          {currentPath.length > 0 && <div className="os-explorer-path">
-            <span className="eyebrow">Current path</span>
-            {currentPath.map((folder) => <a href={`/folder/${encodeURIComponent(folder.id)}`} className={folder.id === currentFolder?.id ? 'is-current' : ''} key={folder.id}>
-              <span aria-hidden="true">{folder.icon}</span><span><strong>{folder.name}</strong><small>{folder.id === currentFolder?.id ? 'Open now' : 'Parent folder'}</small></span>
-            </a>)}
-          </div>}
-          <dl><div><dt>Folders</dt><dd>{folders.length}</dd></div><div><dt>Files</dt><dd>{folders.reduce((sum, folder) => sum + (folder.item_count ?? 0), 0)}</dd></div></dl>
-        </aside>
+    <Dialog title="Browse library" description="Move through every folder from one compact directory tree." className="os-tree-dialog" onClose={onClose}>
+      <div className="os-tree-browser">
+        <div className="os-tree-location">
+          <nav aria-label="Current folder path">
+            <a href="/" aria-current={!currentFolder ? 'page' : undefined}>OpenShare</a>
+            {currentPath.map((folder) => <span key={folder.id}>
+              <span aria-hidden="true">/</span>
+              <a href={`/folder/${encodeURIComponent(folder.id)}`} aria-current={folder.id === currentFolder?.id ? 'page' : undefined}>{folder.name}</a>
+            </span>)}
+          </nav>
+          <span>{folders.length} {folders.length === 1 ? 'folder' : 'folders'} · {folders.reduce((sum, folder) => sum + (folder.item_count ?? 0), 0)} files</span>
+        </div>
         <section className="os-explorer-main">
           <div className="os-tree-toolbar">
             <label className="os-tree-search">
@@ -181,19 +183,32 @@ function TreeBrowser({ folders, currentFolder, onClose }: {
               <button type="button" onClick={() => setExpanded(new Set())}>Collapse</button>
             </div>
           </div>
-          <div className="os-tree-summary" aria-live="polite"><span>{query ? `${rows.length} results` : 'Folders'}</span><span>Use arrow keys to navigate</span></div>
+          <div className="os-tree-summary" aria-live="polite"><span>{query ? `${rows.length} matching ${rows.length === 1 ? 'folder' : 'folders'}` : 'Directory tree'}</span><span>Arrow keys navigate · Enter opens</span></div>
           <nav ref={treeRef} className="os-tree" aria-label="Folder directory" role="tree">
+            <div className="os-tree-item os-tree-root" role="none">
+              <div className={`os-tree-row ${!currentFolder ? 'is-current' : ''}`} role="treeitem" aria-level={1} aria-expanded="true" aria-current={!currentFolder ? 'page' : undefined}>
+                <span className="os-tree-root-mark" aria-hidden="true">/</span>
+                <a href="/" className="os-tree-target">
+                  <span className="os-tree-copy"><strong>OpenShare</strong><small>Library root</small></span>
+                  {!currentFolder && <span className="os-tree-current">Current</span>}
+                </a>
+              </div>
+            </div>
             {rows.map((row, index) => {
               const isCurrent = row.id === currentFolder?.id;
               const isExpanded = expanded.has(row.id) || Boolean(visibleIds);
-              const style = { '--tree-depth': row.depth, '--folder-color': row.color } as CSSProperties;
-              return <div key={row.id} className="os-tree-item" role="none" style={style}>
-                <div className={`os-tree-row ${isCurrent ? 'is-current' : ''}`} role="treeitem" aria-level={row.depth + 1} aria-expanded={row.children.length ? isExpanded : undefined} aria-current={isCurrent ? 'page' : undefined}>
-                  {row.children.length ? <button className="os-tree-disclosure" type="button" aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${row.name}`} onClick={() => toggle(row.id)} tabIndex={-1}><span className={isExpanded ? 'is-open' : ''}>›</span></button> : <span className="os-tree-leaf" aria-hidden="true" />}
+              const style = { '--folder-color': row.color } as CSSProperties;
+              return <div key={row.id} className="os-tree-item" role="none" style={style} data-depth={row.depth} data-branch={row.isLast ? 'last' : 'continuing'}>
+                <div className={`os-tree-row ${isCurrent ? 'is-current' : ''}`} role="treeitem" aria-level={row.depth + 2} aria-expanded={row.children.length ? isExpanded : undefined} aria-current={isCurrent ? 'page' : undefined}>
+                  <span className="os-tree-branches" aria-hidden="true">
+                    {row.ancestorContinuations.map((continues, depth) => <span className={`os-tree-guide ${continues ? 'is-continuing' : ''}`} key={depth} />)}
+                    <span className={`os-tree-elbow ${row.isLast ? 'is-last' : ''}`} />
+                  </span>
+                  {row.children.length ? <button className="os-tree-disclosure" type="button" aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${row.name}`} onClick={() => toggle(row.id)} tabIndex={-1}><span>{isExpanded ? '−' : '+'}</span></button> : <span className="os-tree-leaf" aria-hidden="true">·</span>}
                   <a href={`/folder/${encodeURIComponent(row.id)}`} className="os-tree-target" data-tree-id={row.id} onKeyDown={(event) => onTreeKeyDown(event, row, index)}>
                     <span className="os-tree-folder-icon" aria-hidden="true">{row.icon}</span>
                     <span className="os-tree-copy"><strong>{row.name}</strong><small>{childLabel(row)}</small></span>
-                    {isCurrent ? <span className="os-tree-current">Current</span> : <span className="os-tree-open" aria-hidden="true">›</span>}
+                    {isCurrent && <span className="os-tree-current">Current</span>}
                   </a>
                 </div>
               </div>;
@@ -423,7 +438,7 @@ function ShareLinksDialog({ openChatConnected, onClose }: { openChatConnected: b
       {tab === 'links' && links?.length === 0 && <div className="os-share-empty"><strong>No shared links yet</strong><span>Create one from a folder’s actions.</span></div>}
       {tab === 'links' && links?.map((link) => <article className={`os-share-row ${link.revokedAt ? 'is-revoked' : ''}`} key={link.id}>
         <span className="os-share-mark" aria-hidden="true">↗</span>
-        <span className="os-share-copy"><strong>{link.folderName} {link.legacy && <span className="os-legacy-badge">Existing link</span>}</strong><small>Added {new Date(link.createdAt).toLocaleString()}</small><code>{link.url}</code></span>
+        <span className="os-share-copy"><strong>{link.resourceName ?? link.folderName ?? 'Shared item'} {link.legacy && <span className="os-legacy-badge">Existing link</span>} {link.resourceType && link.resourceType !== 'folder' && <span className="os-legacy-badge">{link.resourceType}</span>}</strong><small>Added {new Date(link.createdAt).toLocaleString()}</small><code>{link.url}</code></span>
         <span className="os-share-actions">
           {!link.revokedAt && <button type="button" onClick={() => navigator.clipboard.writeText(link.url)}>Copy</button>}
           {!link.revokedAt ? <button className="danger" type="button" onClick={() => revoke(link.id)}>{link.legacy ? 'Remove' : 'Revoke'}</button> : <span>{link.legacy ? 'Removed' : 'Revoked'}</span>}

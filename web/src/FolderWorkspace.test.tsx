@@ -5,12 +5,12 @@ import type { FolderWorkspaceData } from './types';
 
 const design = { id: 'design', parent_id: null, name: 'Design', color: '#3298ff', icon: '🎨', child_count: 1, item_count: 4 };
 const drafts = { id: 'drafts', parent_id: 'design', name: 'Drafts', color: '#18d5ad', icon: '📝', child_count: 0, item_count: 2 };
+const media = { id: 'media', parent_id: null, name: 'Media', color: '#9b72ff', icon: '▣', child_count: 0, item_count: 3 };
 const data: FolderWorkspaceData = {
   currentFolder: design,
   subfolders: [drafts],
-  allFolders: [design, drafts],
-  publicUrl: 'https://share.example.test',
-  appVersion: '0.2.32',
+  allFolders: [design, drafts, media],
+  appVersion: '0.2.34',
   openChatConnected: true,
 };
 
@@ -36,19 +36,40 @@ describe('React folder workspace', () => {
     expect(screen.queryByRole('button', { name: 'Edit Drafts' })).not.toBeInTheDocument();
   });
 
-  it('opens a searchable, hierarchical tree in the shared centered surface', () => {
+  it('opens a compact Linux-style folder tree in the shared centered surface', () => {
     render(<FolderWorkspace data={data} />);
     fireEvent.click(screen.getByRole('button', { name: /Browse library/ }));
 
     const dialog = screen.getByRole('dialog', { name: 'Browse library' });
     expect(dialog).toHaveClass('os-tree-dialog');
-    expect(within(dialog).getByRole('complementary', { name: 'Library summary' })).toBeInTheDocument();
-    expect(within(dialog).getByRole('tree')).toBeInTheDocument();
-    expect(within(dialog).getByRole('treeitem', { name: /Design/ })).toHaveAttribute('aria-current', 'page');
+    expect(within(dialog).queryByRole('complementary')).not.toBeInTheDocument();
+    const tree = within(dialog).getByRole('tree', { name: 'Folder directory' });
+    expect(within(tree).getByRole('treeitem', { name: /OpenShare/ })).toHaveAttribute('aria-level', '1');
+    expect(within(tree).getByRole('treeitem', { name: /Design/ })).toHaveAttribute('aria-current', 'page');
+    const nested = within(tree).getByRole('treeitem', { name: /Drafts/ });
+    expect(nested).toHaveAttribute('aria-level', '3');
+    expect(nested.closest('.os-tree-item')).toHaveAttribute('data-depth', '1');
+    expect(nested.closest('.os-tree-item')?.querySelector('.os-tree-guide')).toHaveClass('is-continuing');
 
     fireEvent.change(within(dialog).getByRole('searchbox', { name: 'Find a folder' }), { target: { value: 'draft' } });
     expect(within(dialog).getByRole('treeitem', { name: /Drafts/ })).toBeInTheDocument();
+    expect(within(dialog).getByText('2 matching folders')).toBeInTheDocument();
     expect(within(dialog).queryByText('No folders found')).not.toBeInTheDocument();
+  });
+
+  it('collapses, expands, and navigates the visible tree from the keyboard', () => {
+    render(<FolderWorkspace data={data} />);
+    fireEvent.click(screen.getByRole('button', { name: /Browse library/ }));
+    const dialog = screen.getByRole('dialog', { name: 'Browse library' });
+    const tree = within(dialog).getByRole('tree', { name: 'Folder directory' });
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Collapse' }));
+    expect(within(tree).queryByRole('treeitem', { name: /Drafts/ })).not.toBeInTheDocument();
+    const designLink = within(tree).getByRole('link', { name: /Design/ });
+    fireEvent.keyDown(designLink, { key: 'ArrowRight' });
+    expect(within(tree).getByRole('treeitem', { name: /Drafts/ })).toBeInTheDocument();
+    fireEvent.keyDown(designLink, { key: 'ArrowRight' });
+    expect(within(tree).getByRole('link', { name: /Drafts/ })).toHaveFocus();
   });
 
   it('opens create and edit forms as centered dialogs with RGB controls', () => {
@@ -89,7 +110,7 @@ describe('React folder workspace', () => {
 
     expect(document.documentElement.dataset.theme).toBe('dark');
     expect(window.localStorage.getItem('openshare-theme')).toBe('dark');
-    expect(screen.getByText('OpenShare v0.2.32')).toBeInTheDocument();
+    expect(screen.getByText('OpenShare v0.2.34')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('radio', { name: /Compact/ }));
     fireEvent.click(screen.getByRole('checkbox', { name: /Reduce animation/ }));
     expect(document.documentElement.dataset.folderDensity).toBe('compact');

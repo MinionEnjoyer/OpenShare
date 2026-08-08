@@ -58,6 +58,16 @@ CREATE TABLE IF NOT EXISTS share_links (
 );
 CREATE INDEX IF NOT EXISTS idx_share_links_owner_created ON share_links (owner_sub, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS media_share_links (
+    id          TEXT PRIMARY KEY,
+    media_id    TEXT NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+    owner_sub   TEXT NOT NULL,
+    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    revoked_at  TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_media_share_links_owner_created
+ON media_share_links (owner_sub, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS mirror_events (
     id          TEXT PRIMARY KEY,
     origin_node TEXT NOT NULL,
@@ -222,23 +232,27 @@ async def get_media(media_id: str):
             return dict(row) if row else None
 
 
+async def _list_media_in_folder(connection, owner_sub: str, folder_id: str | None):
+    if folder_id is None:
+        sql = (
+            "SELECT * FROM media WHERE owner_sub=? AND folder_id IS NULL "
+            "AND source_app='personal' ORDER BY uploaded_at DESC"
+        )
+        args: tuple = (owner_sub,)
+    else:
+        sql = (
+            "SELECT * FROM media WHERE owner_sub=? AND folder_id=? "
+            "AND source_app='personal' ORDER BY uploaded_at DESC"
+        )
+        args = (owner_sub, folder_id)
+    async with connection.execute(sql, args) as cur:
+        return [dict(r) for r in await cur.fetchall()]
+
+
 async def list_media_in_folder(owner_sub: str, folder_id: str | None):
-    async with connect_db() as db:
-        db.row_factory = aiosqlite.Row
-        if folder_id is None:
-            sql = (
-                "SELECT * FROM media WHERE owner_sub=? AND folder_id IS NULL "
-                "AND source_app='personal' ORDER BY uploaded_at DESC"
-            )
-            args: tuple = (owner_sub,)
-        else:
-            sql = (
-                "SELECT * FROM media WHERE owner_sub=? AND folder_id=? "
-                "AND source_app='personal' ORDER BY uploaded_at DESC"
-            )
-            args = (owner_sub, folder_id)
-        async with db.execute(sql, args) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+    async with connect_db() as connection:
+        connection.row_factory = aiosqlite.Row
+        return await _list_media_in_folder(connection, owner_sub, folder_id)
 
 
 async def delete_media(media_id: str, owner_sub: str) -> bool:
@@ -352,52 +366,60 @@ async def folder_get(folder_id: str):
             return dict(row) if row else None
 
 
+async def _folder_list_children(connection, owner_sub: str, parent_id: str | None):
+    if parent_id is None:
+        sql = (
+            "SELECT f.*, "
+            "(SELECT COUNT(*) FROM folders child WHERE child.parent_id=f.id) AS child_count, "
+            "(SELECT COUNT(*) FROM media item WHERE item.folder_id=f.id "
+            "AND item.source_app='personal') AS item_count "
+            "FROM folders f WHERE f.owner_sub=? AND f.parent_id IS NULL ORDER BY f.name"
+        )
+        args: tuple = (owner_sub,)
+    else:
+        sql = (
+            "SELECT f.*, "
+            "(SELECT COUNT(*) FROM folders child WHERE child.parent_id=f.id) AS child_count, "
+            "(SELECT COUNT(*) FROM media item WHERE item.folder_id=f.id "
+            "AND item.source_app='personal') AS item_count "
+            "FROM folders f WHERE f.owner_sub=? AND f.parent_id=? ORDER BY f.name"
+        )
+        args = (owner_sub, parent_id)
+    async with connection.execute(sql, args) as cur:
+        return [dict(r) for r in await cur.fetchall()]
+
+
 async def folder_list_children(owner_sub: str, parent_id: str | None):
-    async with connect_db() as db:
-        db.row_factory = aiosqlite.Row
-        if parent_id is None:
-            sql = (
-                "SELECT f.*, "
-                "(SELECT COUNT(*) FROM folders child WHERE child.parent_id=f.id) AS child_count, "
-                "(SELECT COUNT(*) FROM media item WHERE item.folder_id=f.id "
-                "AND item.source_app='personal') AS item_count "
-                "FROM folders f WHERE f.owner_sub=? AND f.parent_id IS NULL ORDER BY f.name"
-            )
-            args: tuple = (owner_sub,)
-        else:
-            sql = (
-                "SELECT f.*, "
-                "(SELECT COUNT(*) FROM folders child WHERE child.parent_id=f.id) AS child_count, "
-                "(SELECT COUNT(*) FROM media item WHERE item.folder_id=f.id "
-                "AND item.source_app='personal') AS item_count "
-                "FROM folders f WHERE f.owner_sub=? AND f.parent_id=? ORDER BY f.name"
-            )
-            args = (owner_sub, parent_id)
-        async with db.execute(sql, args) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+    async with connect_db() as connection:
+        connection.row_factory = aiosqlite.Row
+        return await _folder_list_children(connection, owner_sub, parent_id)
 
 
-async def folder_breadcrumb(folder_id: str | None):
+async def _folder_breadcrumb(connection, folder_id: str | None):
     """Return list from root → folder. Each entry: {id, name}. Empty for root."""
     if folder_id is None:
         return []
     chain = []
     seen = set()
-    async with connect_db() as db:
-        db.row_factory = aiosqlite.Row
-        cur_id = folder_id
-        while cur_id and cur_id not in seen:
-            seen.add(cur_id)
-            async with db.execute(
-                "SELECT id, name, parent_id FROM folders WHERE id=?", (cur_id,)
-            ) as cur:
-                row = await cur.fetchone()
-            if not row:
-                break
-            chain.append({"id": row["id"], "name": row["name"]})
-            cur_id = row["parent_id"]
+    cur_id = folder_id
+    while cur_id and cur_id not in seen:
+        seen.add(cur_id)
+        async with connection.execute(
+            "SELECT id, name, parent_id FROM folders WHERE id=?", (cur_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            break
+        chain.append({"id": row["id"], "name": row["name"]})
+        cur_id = row["parent_id"]
     chain.reverse()
     return chain
+
+
+async def folder_breadcrumb(folder_id: str | None):
+    async with connect_db() as connection:
+        connection.row_factory = aiosqlite.Row
+        return await _folder_breadcrumb(connection, folder_id)
 
 
 async def folder_rename(folder_id: str, owner_sub: str, name: str) -> bool:
@@ -491,41 +513,51 @@ async def folder_move(folder_id: str, owner_sub: str, new_parent_id: str | None)
         return cur.rowcount > 0
 
 
-async def folder_list_all_for_owner(owner_sub: str):
+async def _folder_list_all_for_owner(connection, owner_sub: str):
     """Return the complete folder identity and appearance used by pickers and trees."""
-    async with connect_db() as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT f.id, f.name, f.parent_id, f.color, f.icon, f.preview_mode, f.preview_media_id, "
-            "(SELECT COUNT(*) FROM folders child WHERE child.parent_id=f.id) AS child_count, "
-            "(SELECT COUNT(*) FROM media item WHERE item.folder_id=f.id "
-            "AND item.source_app='personal') AS item_count "
-            "FROM folders f WHERE f.owner_sub=? ORDER BY f.name",
-            (owner_sub,),
-        ) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+    async with connection.execute(
+        "SELECT f.id, f.name, f.parent_id, f.color, f.icon, f.preview_mode, f.preview_media_id, "
+        "(SELECT COUNT(*) FROM folders child WHERE child.parent_id=f.id) AS child_count, "
+        "(SELECT COUNT(*) FROM media item WHERE item.folder_id=f.id "
+        "AND item.source_app='personal') AS item_count "
+        "FROM folders f WHERE f.owner_sub=? ORDER BY f.name",
+        (owner_sub,),
+    ) as cur:
+        return [dict(r) for r in await cur.fetchall()]
 
 
-async def folder_preview_images(owner_sub: str, limit_per_folder: int = 8) -> dict[str, list[dict]]:
+async def folder_list_all_for_owner(owner_sub: str):
+    async with connect_db() as connection:
+        connection.row_factory = aiosqlite.Row
+        return await _folder_list_all_for_owner(connection, owner_sub)
+
+
+async def _folder_preview_images(
+    connection, owner_sub: str, limit_per_folder: int = 8
+) -> dict[str, list[dict]]:
     """Return recent image thumbnails grouped by folder, bounded for UI payloads."""
-    async with connect_db() as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT id, folder_id, original_name FROM ("
-            "SELECT id, folder_id, original_name, "
-            "ROW_NUMBER() OVER (PARTITION BY folder_id ORDER BY uploaded_at DESC, id) AS row_number "
-            "FROM media WHERE owner_sub=? AND folder_id IS NOT NULL "
-            "AND source_app='personal' AND media_type='image' AND thumb_path IS NOT NULL"
-            ") WHERE row_number <= ? ORDER BY folder_id, row_number",
-            (owner_sub, limit_per_folder),
-        ) as cur:
-            rows = await cur.fetchall()
+    async with connection.execute(
+        "SELECT id, folder_id, original_name FROM ("
+        "SELECT id, folder_id, original_name, "
+        "ROW_NUMBER() OVER (PARTITION BY folder_id ORDER BY uploaded_at DESC, id) AS row_number "
+        "FROM media WHERE owner_sub=? AND folder_id IS NOT NULL "
+        "AND source_app='personal' AND media_type='image' AND thumb_path IS NOT NULL"
+        ") WHERE row_number <= ? ORDER BY folder_id, row_number",
+        (owner_sub, limit_per_folder),
+    ) as cur:
+        rows = await cur.fetchall()
     grouped: dict[str, list[dict]] = {}
     for row in rows:
         grouped.setdefault(row["folder_id"], []).append(
             {"id": row["id"], "name": row["original_name"], "thumb_url": f"/thumb/{row['id']}"}
         )
     return grouped
+
+
+async def folder_preview_images(owner_sub: str, limit_per_folder: int = 8) -> dict[str, list[dict]]:
+    async with connect_db() as connection:
+        connection.row_factory = aiosqlite.Row
+        return await _folder_preview_images(connection, owner_sub, limit_per_folder)
 
 
 async def share_link_create(link_id: str, folder_id: str, owner_sub: str) -> bool:
@@ -608,12 +640,83 @@ async def share_link_revoke(link_id: str, owner_sub: str) -> bool:
         return cur.rowcount > 0
 
 
-async def owner_storage_bytes(owner_sub: str) -> int:
-    async with connect_db() as db, db.execute(
+async def media_share_link_create(link_id: str, media_id: str, owner_sub: str) -> bool:
+    async with connect_db() as db:
+        async with db.execute(
+            "SELECT 1 FROM media WHERE id=? AND owner_sub=?", (media_id, owner_sub)
+        ) as cur:
+            if not await cur.fetchone():
+                return False
+        await db.execute(
+            "INSERT INTO media_share_links (id, media_id, owner_sub) VALUES (?, ?, ?)",
+            (link_id, media_id, owner_sub),
+        )
+        await db.commit()
+        return True
+
+
+async def media_share_link_get(link_id: str):
+    async with connect_db() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT s.*, m.media_type FROM media_share_links s "
+            "JOIN media m ON m.id=s.media_id "
+            "WHERE s.id=? AND s.revoked_at IS NULL",
+            (link_id,),
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+
+async def media_share_link_list(owner_sub: str):
+    async with connect_db() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT s.id, s.media_id, s.created_at, s.revoked_at, "
+            "m.original_name, m.media_type "
+            "FROM media_share_links s JOIN media m ON m.id=s.media_id "
+            "WHERE s.owner_sub=? ORDER BY s.created_at DESC, s.id DESC",
+            (owner_sub,),
+        ) as cur:
+            return [dict(row) for row in await cur.fetchall()]
+
+
+async def media_share_link_revoke(link_id: str, owner_sub: str) -> bool:
+    async with connect_db() as db:
+        cur = await db.execute(
+            "UPDATE media_share_links SET revoked_at=CURRENT_TIMESTAMP "
+            "WHERE id=? AND owner_sub=? AND revoked_at IS NULL",
+            (link_id, owner_sub),
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def _owner_storage_bytes(connection, owner_sub: str) -> int:
+    async with connection.execute(
         "SELECT COALESCE(SUM(size_bytes), 0) FROM media WHERE owner_sub=?", (owner_sub,)
     ) as cur:
         row = await cur.fetchone()
         return int(row[0]) if row else 0
+
+
+async def owner_storage_bytes(owner_sub: str) -> int:
+    async with connect_db() as connection:
+        return await _owner_storage_bytes(connection, owner_sub)
+
+
+async def owner_library_snapshot(owner_sub: str, folder_id: str | None) -> dict:
+    """Load one owner-library page through a single SQLite connection."""
+    async with connect_db() as connection:
+        connection.row_factory = aiosqlite.Row
+        return {
+            "items": await _list_media_in_folder(connection, owner_sub, folder_id),
+            "subfolders": await _folder_list_children(connection, owner_sub, folder_id),
+            "breadcrumb": await _folder_breadcrumb(connection, folder_id),
+            "all_folders": await _folder_list_all_for_owner(connection, owner_sub),
+            "storage_bytes": await _owner_storage_bytes(connection, owner_sub),
+            "preview_images": await _folder_preview_images(connection, owner_sub),
+        }
 
 
 async def list_companion_media(owner_sub: str, source_app: str, limit: int = 200):
@@ -731,9 +834,9 @@ async def search_media(owner_sub: str, q: str, limit: int = 200):
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM media WHERE owner_sub=? AND source_app='personal' "
-            "AND original_name LIKE ? COLLATE NOCASE "
+            "AND (original_name LIKE ? COLLATE NOCASE OR media_type LIKE ? COLLATE NOCASE) "
             "ORDER BY uploaded_at DESC LIMIT ?",
-            (owner_sub, pat, limit),
+            (owner_sub, pat, pat, limit),
         ) as cur:
             return [dict(r) for r in await cur.fetchall()]
 
@@ -748,6 +851,25 @@ async def search_folders(owner_sub: str, q: str, limit: int = 100):
             (owner_sub, pat, limit),
         ) as cur:
             return [dict(r) for r in await cur.fetchall()]
+
+
+async def search_suggestion_sources(owner_sub: str, media_limit: int = 500):
+    """Return owner-scoped names used to derive search suggestions."""
+    async with connect_db() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT original_name, media_type FROM media "
+            "WHERE owner_sub=? AND source_app='personal' "
+            "ORDER BY uploaded_at DESC LIMIT ?",
+            (owner_sub, media_limit),
+        ) as cur:
+            media = [dict(r) for r in await cur.fetchall()]
+        async with db.execute(
+            "SELECT name FROM folders WHERE owner_sub=? ORDER BY name",
+            (owner_sub,),
+        ) as cur:
+            folders = [dict(r) for r in await cur.fetchall()]
+    return {"media": media, "folders": folders}
 
 
 async def folder_public_view(folder_id: str):

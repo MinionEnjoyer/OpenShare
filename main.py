@@ -8,6 +8,7 @@ import secrets
 import shutil
 import unicodedata
 import zipfile
+from collections import Counter
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -169,6 +170,10 @@ def classify_upload(filename: str, content_type: str) -> tuple[str | None, str]:
     return None, mime
 
 ID_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+_VIEW_PREFIXES = {
+    "image": "i", "video": "v", "pdf": "d", "model": "m",
+    "text": "t", "archive": "a", "audio": "au",
+}
 
 
 def new_id(n: int = 22) -> str:
@@ -395,22 +400,34 @@ async def _owner_folder(folder_id: str, owner_sub: str) -> dict:
     return f
 
 
+def _serialize_library_item(item: dict) -> dict:
+    """Return the minimal media shape shared by library-style React surfaces."""
+    return {
+        "id": item["id"],
+        "name": item["original_name"],
+        "mediaType": item["media_type"],
+        "thumbUrl": f"/thumb/{item['id']}" if item.get("thumb_path") else None,
+        "viewUrl": f"/{_VIEW_PREFIXES.get(item['media_type'], 'd')}/{item['id']}",
+        "extension": Path(item["original_name"]).suffix.upper().lstrip("."),
+    }
+
+
 async def _render_owner_view(request, user, folder):
     folder_id = folder["id"] if folder else None
-    items, subfolders, breadcrumb, all_folders, storage_bytes, preview_images = await asyncio.gather(
-        db.list_media_in_folder(user["sub"], folder_id),
-        db.folder_list_children(user["sub"], folder_id),
-        db.folder_breadcrumb(folder_id),
-        db.folder_list_all_for_owner(user["sub"]),
-        db.owner_storage_bytes(user["sub"]),
-        db.folder_preview_images(user["sub"]),
-    )
+    snapshot = await db.owner_library_snapshot(user["sub"], folder_id)
+    items = snapshot["items"]
+    subfolders = snapshot["subfolders"]
+    breadcrumb = snapshot["breadcrumb"]
+    all_folders = snapshot["all_folders"]
+    storage_bytes = snapshot["storage_bytes"]
+    preview_images = snapshot["preview_images"]
     def add_previews(candidate: dict) -> dict:
         return {**candidate, "preview_images": preview_images.get(candidate["id"], [])}
 
     folder = add_previews(folder) if folder else None
     subfolders = [add_previews(candidate) for candidate in subfolders]
     all_folders = [add_previews(candidate) for candidate in all_folders]
+    library_items = [_serialize_library_item(item) for item in items]
     return templates.TemplateResponse(
         request=request,
         name="gallery.html",
@@ -420,9 +437,8 @@ async def _render_owner_view(request, user, folder):
             "folder": folder,
             "breadcrumb": breadcrumb,
             "subfolders": subfolders,
-            "items": items,
+            "library_items": library_items,
             "all_folders": all_folders,
-            "public_url": PUBLIC_URL,
             "share_api_enabled": bool(SHARE_API_KEY),
         },
     )
@@ -613,22 +629,52 @@ async def create_folder_share_link(
     return {"id": link_id, "folderId": folder_id, "url": f"{PUBLIC_URL}/s/{link_id}"}
 
 
+@app.post("/media/{media_id}/shares")
+async def create_media_share_link(media_id: str, user: dict = Depends(require_user)):
+    item = await db.get_media(media_id)
+    if not item or item["owner_sub"] != user["sub"]:
+        raise HTTPException(404, detail="media not found")
+    link_id = new_id(18)
+    if not await db.media_share_link_create(link_id, media_id, user["sub"]):
+        raise HTTPException(400, detail="could not create share link")
+    return {"id": link_id, "mediaId": media_id, "url": f"{PUBLIC_URL}/ms/{link_id}"}
+
+
 @app.get("/api/share-links")
 async def list_share_links(user: dict = Depends(require_user)):
-    links = await db.share_link_list(user["sub"])
-    return [
+    folder_links, media_links = await asyncio.gather(
+        db.share_link_list(user["sub"]),
+        db.media_share_link_list(user["sub"]),
+    )
+    results = [
         {
             "id": link["id"],
             "folderId": link["folder_id"],
+            "mediaId": None,
             "folderName": link["folder_name"],
+            "resourceName": link["folder_name"],
+            "resourceType": "folder",
             "url": f"{PUBLIC_URL}{link['legacy_path']}" if link["legacy_path"]
             else f"{PUBLIC_URL}/s/{link['id']}",
             "createdAt": link["created_at"],
             "revokedAt": link["revoked_at"],
             "legacy": bool(link["legacy_path"]),
         }
-        for link in links
+        for link in folder_links
     ]
+    results.extend({
+        "id": link["id"],
+        "folderId": None,
+        "mediaId": link["media_id"],
+        "folderName": None,
+        "resourceName": link["original_name"],
+        "resourceType": link["media_type"],
+        "url": f"{PUBLIC_URL}/ms/{link['id']}",
+        "createdAt": link["created_at"],
+        "revokedAt": link["revoked_at"],
+        "legacy": False,
+    } for link in media_links)
+    return sorted(results, key=lambda link: (link["createdAt"], link["id"]), reverse=True)
 
 
 @app.post("/shares/import")
@@ -698,7 +744,9 @@ async def list_companion_content(
 
 @app.post("/shares/{link_id}/revoke")
 async def revoke_share_link(link_id: str, user: dict = Depends(require_user)):
-    if not await db.share_link_revoke(link_id, user["sub"]):
+    folder_revoked = await db.share_link_revoke(link_id, user["sub"])
+    media_revoked = False if folder_revoked else await db.media_share_link_revoke(link_id, user["sub"])
+    if not folder_revoked and not media_revoked:
         raise HTTPException(404, detail="active share link not found")
     return {"revoked": True}
 
@@ -1094,15 +1142,58 @@ async def bulk_delete(
 
 # ---------- Public view pages ----------
 
+
+def _viewer_response(
+    request: Request,
+    item: dict,
+    *,
+    text_body: str | None = None,
+    text_language: str | None = None,
+    text_truncated: bool = False,
+    model_extension: str | None = None,
+    model_material: str | None = None,
+):
+    user = auth.user_from_session(request.session)
+    can_manage = bool(user and user["sub"] == item["owner_sub"])
+    prefix = _VIEW_PREFIXES[item["media_type"]]
+    viewer_path = f"/{prefix}/{item['id']}"
+    back_url = (
+        f"/folder/{item['folder_id']}" if can_manage and item.get("folder_id") else "/"
+    )
+    viewer_data = {
+        "id": item["id"],
+        "name": item["original_name"],
+        "mediaType": item["media_type"],
+        "rawUrl": f"/raw/{item['id']}",
+        "thumbUrl": f"/thumb/{item['id']}" if item.get("thumb_path") else None,
+        "ownerUsername": item["owner_username"],
+        "sizeLabel": humanize_bytes(item["size_bytes"]),
+        "appVersion": APP_VERSION,
+        "canManage": can_manage,
+        "backUrl": back_url,
+        "deleteUrl": f"/delete/{item['id']}",
+        "shareUrl": f"/media/{item['id']}/shares",
+        "waveformUrl": f"/waveform/{item['id']}" if item["media_type"] == "audio" else None,
+        "textBody": text_body,
+        "textLanguage": text_language,
+        "textTruncated": text_truncated,
+        "modelExtension": model_extension,
+        "modelMaterial": model_material,
+    }
+    return templates.TemplateResponse(request=request, name="view_media.html", context={
+        "item": item,
+        "user": user,
+        "public_url": PUBLIC_URL,
+        "viewer_path": viewer_path,
+        "viewer_data": viewer_data,
+    })
+
+
 async def _view(request: Request, media_id: str, expected: str):
     item = await db.get_media(media_id)
     if not item or item["media_type"] != expected:
         raise HTTPException(404)
-    template = "view_image.html" if expected == "image" else "view_video.html"
-    return templates.TemplateResponse(request=request, name=template, context={
-        "item": item,
-        "public_url": PUBLIC_URL,
-    })
+    return _viewer_response(request, item)
 
 
 @app.get("/i/{media_id}", response_class=HTMLResponse)
@@ -1120,10 +1211,7 @@ async def view_pdf(request: Request, media_id: str):
     item = await db.get_media(media_id)
     if not item or item["media_type"] != "pdf":
         raise HTTPException(404)
-    return templates.TemplateResponse(request=request, name="view_pdf.html", context={
-        "item": item,
-        "public_url": PUBLIC_URL,
-    })
+    return _viewer_response(request, item)
 
 
 _HLJS_LANG_BY_EXT = {
@@ -1151,10 +1239,7 @@ async def view_archive(request: Request, media_id: str):
     item = await db.get_media(media_id)
     if not item or item["media_type"] != "archive":
         raise HTTPException(404)
-    return templates.TemplateResponse(request=request, name="view_archive.html", context={
-        "item": item,
-        "public_url": PUBLIC_URL,
-    })
+    return _viewer_response(request, item)
 
 
 @app.get("/au/{media_id}", response_class=HTMLResponse)
@@ -1162,10 +1247,7 @@ async def view_audio(request: Request, media_id: str):
     item = await db.get_media(media_id)
     if not item or item["media_type"] != "audio":
         raise HTTPException(404)
-    return templates.TemplateResponse(request=request, name="view_audio.html", context={
-        "item": item,
-        "public_url": PUBLIC_URL,
-    })
+    return _viewer_response(request, item)
 
 
 @app.get("/t/{media_id}", response_class=HTMLResponse)
@@ -1185,13 +1267,13 @@ async def view_text(request: Request, media_id: str):
         body, truncated = "(unable to read file)", False
     ext = Path(item["original_name"]).suffix.lower()
     lang = _HLJS_LANG_BY_EXT.get(ext, "plaintext")
-    return templates.TemplateResponse(request=request, name="view_text.html", context={
-        "item": item,
-        "body": body,
-        "lang": lang,
-        "truncated": truncated,
-        "public_url": PUBLIC_URL,
-    })
+    return _viewer_response(
+        request,
+        item,
+        text_body=body,
+        text_language=lang,
+        text_truncated=truncated,
+    )
 
 
 @app.get("/m/{media_id}", response_class=HTMLResponse)
@@ -1207,12 +1289,12 @@ async def view_model(request: Request, media_id: str):
             if sibling.suffix.lower() == ".mtl":
                 mtl_name = sibling.name
                 break
-    return templates.TemplateResponse(request=request, name="view_3d.html", context={
-        "item": item,
-        "ext": ext,
-        "mtl_name": mtl_name,
-        "public_url": PUBLIC_URL,
-    })
+    return _viewer_response(
+        request,
+        item,
+        model_extension=ext,
+        model_material=mtl_name,
+    )
 
 
 @app.get("/search", response_class=HTMLResponse)
@@ -1222,29 +1304,120 @@ async def search(request: Request, q: str = "", user: dict = Depends(require_use
     if q:
         items = await db.search_media(user["sub"], q)
         folders = await db.search_folders(user["sub"], q)
+    search_items = [_serialize_library_item(item) for item in items]
     return templates.TemplateResponse(request=request, name="search.html", context={
         "user": user,
         "user_storage": await _storage_for(user),
         "q": q,
-        "items": items,
+        "search_items": search_items,
         "folders": folders,
-        "public_url": PUBLIC_URL,
     })
+
+
+_SEARCH_STOP_WORDS = {"a", "an", "and", "for", "from", "in", "of", "on", "the", "to", "with"}
+_SEARCH_TYPE_LABELS = {
+    "archive": "Archives",
+    "audio": "Audio",
+    "image": "Images",
+    "model": "3D models",
+    "pdf": "PDF documents",
+    "text": "Text and code",
+    "video": "Videos",
+}
+
+
+def _search_suggestions(sources: dict, query: str, limit: int = 8) -> list[dict]:
+    """Rank deterministic keyword suggestions from an owner's library metadata."""
+    candidates: dict[str, dict] = {}
+
+    def add(value: str, label: str, kind: str, weight: int = 1):
+        value = value.strip()
+        if len(value) < 2:
+            return
+        key = value.casefold()
+        if key not in candidates:
+            candidates[key] = {"value": value, "label": label, "kind": kind, "count": 0}
+        candidates[key]["count"] += weight
+
+    media_types = Counter()
+    for item in sources.get("media", []):
+        name = str(item.get("original_name") or "").strip()
+        media_type = str(item.get("media_type") or "").strip().lower()
+        if media_type:
+            media_types[media_type] += 1
+        if not name:
+            continue
+        path = Path(name)
+        stem = path.stem.strip()
+        if stem:
+            add(stem, stem, "File")
+        extension = path.suffix.lower().lstrip(".")
+        if extension:
+            add(extension, extension.upper(), "Extension")
+        for token in re.findall(r"[\w]+", unicodedata.normalize("NFKC", stem), flags=re.UNICODE):
+            if token.casefold() not in _SEARCH_STOP_WORDS:
+                add(token, token, "Keyword")
+
+    for folder in sources.get("folders", []):
+        name = str(folder.get("name") or "").strip()
+        if not name:
+            continue
+        add(name, name, "Folder", 2)
+        for token in re.findall(r"[\w]+", unicodedata.normalize("NFKC", name), flags=re.UNICODE):
+            if token.casefold() not in _SEARCH_STOP_WORDS:
+                add(token, token, "Keyword", 2)
+
+    for media_type, count in media_types.items():
+        add(media_type, _SEARCH_TYPE_LABELS.get(media_type, media_type.title()), "Type", count)
+
+    needle = query.strip().casefold()
+    ranked = []
+    for candidate in candidates.values():
+        value = candidate["value"].casefold()
+        label = candidate["label"].casefold()
+        if needle and needle not in value and needle not in label:
+            continue
+        match_rank = 0 if not needle or value.startswith(needle) or label.startswith(needle) else 1
+        kind_rank = {"Folder": 0, "File": 1, "Keyword": 2, "Type": 3, "Extension": 4}.get(candidate["kind"], 5)
+        ranked.append((match_rank, -candidate["count"], kind_rank, len(candidate["value"]), candidate))
+    ranked.sort(key=lambda entry: entry[:-1])
+    return [entry[-1] for entry in ranked[:max(1, min(limit, 12))]]
+
+
+@app.get("/api/search/suggestions")
+async def search_suggestions(q: str = "", user: dict = Depends(require_user)):
+    sources = await db.search_suggestion_sources(user["sub"])
+    suggestions = _search_suggestions(sources, q[:100])
+    return JSONResponse(
+        {"suggestions": suggestions},
+        headers={"Cache-Control": "private, max-age=30"},
+    )
 
 
 async def _render_public_folder(folder_id: str, request: Request, share_url: str):
     data = await db.folder_public_view(folder_id)
     if not data:
         raise HTTPException(404)
+    def public_folder(folder: dict) -> dict:
+        return {
+            "id": folder["id"], "name": folder["name"],
+            "parent_id": folder.get("parent_id"), "color": folder["color"], "icon": folder["icon"],
+        }
+
+    public_data = {
+        "folder": public_folder(data["folder"]),
+        "subfolders": [public_folder(folder) for folder in data["subfolders"]],
+        "items": [_serialize_library_item(item) for item in data["items"]],
+    }
+    preview = next((item for item in data["items"] if item.get("thumb_path")), None)
     return templates.TemplateResponse(
         request=request,
         name="public_folder.html",
         context={
             "folder": data["folder"],
-            "subfolders": data["subfolders"],
-            "items": data["items"],
-            "public_url": PUBLIC_URL,
+            "preview_image_url": f"{PUBLIC_URL}/thumb/{preview['id']}" if preview else None,
             "share_url": share_url,
+            "public_data": public_data,
         },
     )
 
@@ -1262,6 +1435,15 @@ async def view_recorded_share_link(link_id: str, request: Request):
     return await _render_public_folder(
         link["folder_id"], request, f"{PUBLIC_URL}/s/{link_id}"
     )
+
+
+@app.get("/ms/{link_id}")
+async def view_recorded_media_share_link(link_id: str):
+    link = await db.media_share_link_get(link_id)
+    if not link:
+        raise HTTPException(404)
+    prefix = _VIEW_PREFIXES.get(link["media_type"], "d")
+    return RedirectResponse(url=f"/{prefix}/{link['media_id']}", status_code=307)
 
 
 # ---------- Raw file + thumb ----------

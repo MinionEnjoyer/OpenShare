@@ -17,9 +17,22 @@ export type FolderWorkspaceData = {
   currentFolder: Folder | null;
   subfolders: Folder[];
   allFolders: Folder[];
-  publicUrl: string;
   appVersion: string;
   openChatConnected: boolean;
+};
+
+export type LibraryItem = {
+  id: string;
+  name: string;
+  mediaType: string;
+  thumbUrl: string | null;
+  viewUrl: string;
+  extension: string;
+};
+
+export type LibraryData = FolderWorkspaceData & {
+  breadcrumb: Array<{ id: string; name: string }>;
+  items: LibraryItem[];
 };
 
 export type FolderNode = Folder & { children: FolderNode[] };
@@ -27,4 +40,27 @@ export type FolderNode = Folder & { children: FolderNode[] };
 export type FlatFolderNode = FolderNode & {
   depth: number;
   parentId: string | null;
+  ancestorContinuations: boolean[];
+  isLast: boolean;
+};
+
+export type MediaViewerData = {
+  id: string;
+  name: string;
+  mediaType: 'image' | 'video' | 'audio' | 'pdf' | 'text' | 'archive' | 'model';
+  rawUrl: string;
+  thumbUrl: string | null;
+  ownerUsername: string;
+  sizeLabel: string;
+  appVersion: string;
+  canManage: boolean;
+  backUrl: string;
+  deleteUrl: string;
+  shareUrl: string;
+  waveformUrl: string | null;
+  textBody: string | null;
+  textLanguage: string | null;
+  textTruncated: boolean;
+  modelExtension: string | null;
+  modelMaterial: string | null;
 };

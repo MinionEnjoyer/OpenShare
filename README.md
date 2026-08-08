@@ -33,7 +33,7 @@ If OpenShare is useful to you, project support is available through
 FastAPI (Python 3.12) · SQLite · Authlib (OIDC) · Pillow / ffmpeg / poppler / pyrender for
 thumbnails · Jinja2 templates. Ships as a single Docker image.
 
-The current OpenShare release is **0.2.2**. The canonical value lives in [`VERSION`](VERSION), is
+The current OpenShare release is **0.2.3**. The canonical value lives in [`VERSION`](VERSION), is
 shown in the web footer, and is returned by `GET /health` so operators can verify the active build.
 
 ## Quick start

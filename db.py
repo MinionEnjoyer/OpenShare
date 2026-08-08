@@ -433,11 +433,12 @@ async def folder_move(folder_id: str, owner_sub: str, new_parent_id: str | None)
 
 
 async def folder_list_all_for_owner(owner_sub: str):
-    """For folder pickers — returns id, name, parent_id."""
+    """Return the complete folder identity and appearance used by pickers and trees."""
     async with connect_db() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT id, name, parent_id FROM folders WHERE owner_sub=? ORDER BY name", (owner_sub,)
+            "SELECT id, name, parent_id, color, icon FROM folders WHERE owner_sub=? ORDER BY name",
+            (owner_sub,),
         ) as cur:
             return [dict(r) for r in await cur.fetchall()]
 

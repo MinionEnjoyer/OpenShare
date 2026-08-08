@@ -20,7 +20,7 @@
 </section>
 <section class="folder-actions">
   <button class="btn" type="button" onclick="document.getElementById('share-dialog').showModal()">Copy share link</button>
-  <button class="btn folder-edit-action" type="button" data-open-dialog="folder-edit-{{ folder.id }}">Edit current folder</button>
+  <button class="btn folder-edit-action" type="button" data-open-dialog="folder-edit-{{ folder.id }}" hidden>Edit current folder</button>
   <details class="inline-form" name="gallery-menu">
     <summary class="btn">Move folder</summary>
     <form action="/folders/{{ folder.id }}/move" method="post" data-loading="Moving folder…">
@@ -60,8 +60,8 @@
 </div>
 <dialog class="folder-tree-dialog" id="folder-tree-dialog">
   <div class="folder-tree-heading">
-    <div><span class="eyebrow">Library</span><h3>Browse folders</h3></div>
-    <button class="btn" type="button" data-dialog-close>Close</button>
+    <div><span class="eyebrow">Library</span><h3>Browse folders</h3><p class="muted">{{ all_folders|length }} folder{{ '' if all_folders|length == 1 else 's' }}</p></div>
+    <button class="dialog-close" type="button" data-dialog-close aria-label="Close folder browser">×</button>
   </div>
   <label class="field-label" for="folder-tree-search">Find a folder</label>
   <input id="folder-tree-search" type="search" placeholder="Search folders" autocomplete="off" data-folder-tree-search>
@@ -134,7 +134,7 @@
       <div class="folder-icon">{{ sf.icon }}</div>
       <span class="folder-name">{{ sf.name }}</span>
     </a>
-    <button class="folder-tile-edit" type="button" data-open-dialog="folder-edit-{{ sf.id }}" aria-label="Edit {{ sf.name }}">Edit</button>
+    <button class="folder-tile-edit" type="button" data-open-dialog="folder-edit-{{ sf.id }}" aria-label="Edit {{ sf.name }}" hidden>Edit</button>
     {{ edit_dialog(sf, 'parent') }}
   </article>
   {% endfor %}

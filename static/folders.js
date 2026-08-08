@@ -118,7 +118,9 @@
           link.setAttribute('aria-current', 'page');
         }
         const icon = document.createElement('span');
+        icon.className = 'folder-tree-icon';
         icon.textContent = node.icon;
+        icon.style.setProperty('--folder-color', node.color || '#4f9cf9');
         const name = document.createElement('span');
         name.textContent = node.name;
         link.append(icon, name);
@@ -132,7 +134,21 @@
       });
       return list;
     }
-    host.replaceChildren(renderNodes(buildFolderForest(folders)));
+    const home = document.createElement('a');
+    home.href = '/';
+    home.className = 'folder-tree-home';
+    home.dataset.loadingLink = 'Opening library…';
+    if (!currentFolder) {
+      home.classList.add('current');
+      home.setAttribute('aria-current', 'page');
+    }
+    const homeIcon = document.createElement('span');
+    homeIcon.className = 'folder-tree-icon folder-tree-icon-home';
+    homeIcon.textContent = '⌂';
+    const homeLabel = document.createElement('span');
+    homeLabel.textContent = 'All files';
+    home.append(homeIcon, homeLabel);
+    host.replaceChildren(home, renderNodes(buildFolderForest(folders)));
     search?.addEventListener('input', () => {
       const query = search.value.trim().toLowerCase();
       const items = [...host.querySelectorAll('li[data-tree-label]')];
@@ -236,6 +252,9 @@
   function setEditMode(enabled, root = document) {
     const button = root.getElementById('folder-edit-toggle');
     root.body?.classList.toggle('folder-editing', enabled);
+    root.querySelectorAll?.('.folder-edit-action, .folder-tile-edit').forEach((control) => {
+      control.hidden = !enabled;
+    });
     if (button) {
       button.setAttribute('aria-pressed', String(enabled));
       const label = button.querySelector('[data-edit-label]');
@@ -249,6 +268,7 @@
     root.querySelectorAll('[data-emoji-picker]').forEach(initEmojiPicker);
     root.querySelectorAll('.folder-tree-dialog').forEach(initFolderTree);
     const toggle = root.getElementById('folder-edit-toggle');
+    if (toggle) setEditMode(false, root);
     toggle?.addEventListener('click', () => setEditMode(toggle.getAttribute('aria-pressed') !== 'true', root));
     root.querySelectorAll('[data-open-dialog]').forEach((button) => button.addEventListener('click', () => {
       root.getElementById(button.dataset.openDialog)?.showModal();

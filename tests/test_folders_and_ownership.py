@@ -71,6 +71,9 @@ def test_folder_appearance_is_validated_and_persisted(harness: OpenShareHarness)
 
     assert folder["color"] == "#12abef"
     assert folder["icon"] == "📷"
+    listed = next(folder for folder in harness.folders() if folder["id"] == folder_id)
+    assert listed["color"] == "#12abef"
+    assert listed["icon"] == "📷"
 
     invalid = harness.client.post(
         "/folders",
@@ -133,6 +136,9 @@ def test_folder_page_renders_creation_surface_and_active_orbit(harness: OpenShar
     assert 'data-rgb="r"' in response.text
     assert 'data-emoji-search' in response.text
     assert 'id="folder-edit-toggle"' in response.text
+    assert 'class="btn folder-edit-action"' in response.text
+    assert 'data-open-dialog="folder-edit-' in response.text
+    assert 'hidden>Edit current folder</button>' in response.text
     assert 'id="folder-tree-dialog"' in response.text
     assert 'data-folder-tree-source' in response.text
     assert f'action="/folders/{folder_id}/update"' in response.text

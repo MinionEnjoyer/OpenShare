@@ -54,13 +54,19 @@ test('folder edit mode updates the shared toggle and page state', () => {
     setAttribute(name, value) { attributes[name] = value; },
     querySelector() { return label; },
   };
+  const editControls = [{ hidden: true }, { hidden: true }];
   const root = {
     body: { classList: { toggle(name, on) { if (on) classes.add(name); else classes.delete(name); } } },
     getElementById() { return button; },
+    querySelectorAll() { return editControls; },
   };
 
   folders.setEditMode(true, root);
   assert.equal(attributes['aria-pressed'], 'true');
   assert.equal(label.textContent, 'Done editing');
   assert.equal(classes.has('folder-editing'), true);
+  assert.deepEqual(editControls.map((control) => control.hidden), [false, false]);
+
+  folders.setEditMode(false, root);
+  assert.deepEqual(editControls.map((control) => control.hidden), [true, true]);
 });

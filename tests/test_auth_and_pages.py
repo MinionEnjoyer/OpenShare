@@ -52,6 +52,8 @@ def test_logged_in_home_renders_gallery(monkeypatch, harness: OpenShareHarness):
 
     assert response.status_code == 200
     assert "Drop files here" in response.text
+    assert 'data-loading="Creating folder…" data-async-form' in response.text
+    assert "OpenShareLoading.navigateWithBusy" in response.text
     assert "Sign in" not in response.text
 
 

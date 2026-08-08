@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -46,6 +47,20 @@ def test_nested_folder_crud_and_cycle_protection(harness: OpenShareHarness):
     )
     assert cycle.status_code == 400
     assert run(db.folder_get(parent_id))["parent_id"] is None
+
+
+def test_create_folder_failure_returns_a_useful_error(monkeypatch, harness: OpenShareHarness):
+    monkeypatch.setattr(db, "folder_create", AsyncMock(return_value=False))
+
+    response = harness.client.post(
+        "/folders",
+        headers=harness.owner_headers(),
+        data={"name": "Will Fail", "parent_id": ""},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "could not create folder"}
 
 
 def test_folder_access_is_owner_scoped(harness: OpenShareHarness):

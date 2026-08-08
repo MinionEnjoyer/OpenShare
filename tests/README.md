@@ -36,6 +36,8 @@ anonymous and exercise the real 401 path.
 - `pytest -m unit` runs pure classification, configuration, and helper tests.
 - `pytest -m integration` runs the ASGI/SQLite/storage harness.
 - `pytest --cov` enforces the branch-coverage threshold configured in `pyproject.toml`.
+- `make test-js` runs browser loading, navigation-timeout, and failure-recovery contracts with
+  Node's built-in test runner and no third-party JavaScript test dependencies.
 
 Media processors are faked by default so a malformed placeholder video or PDF is sufficient for
 route tests. Tests for the processor implementations themselves should be marked separately and

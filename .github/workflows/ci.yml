@@ -17,7 +17,11 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - run: pip install -r requirements-dev.txt
       - run: make lint
       - run: make test-cov
+      - run: make test-js
       - run: pip-audit -r requirements.txt

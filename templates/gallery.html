@@ -50,7 +50,7 @@
 <section class="upload-zone" id="dropzone">
   <details class="inline-form new-folder-spot" name="gallery-menu">
     <summary class="btn ghost">+ New folder</summary>
-    <form action="/folders" method="post" class="new-folder-form" data-loading="Creating folder…">
+    <form action="/folders" method="post" class="new-folder-form" data-loading="Creating folder…" data-async-form>
       <input type="hidden" name="parent_id" value="{{ folder.id if folder else '' }}">
       <input type="text" name="name" placeholder="Folder name" required autofocus>
       <button class="btn primary" type="submit">Create</button>
@@ -260,8 +260,7 @@ grid.addEventListener('click', ev => {
   if (ev.metaKey || ev.ctrlKey) { ev.preventDefault(); toggle(id); return; }
   if (ev.shiftKey) { ev.preventDefault(); rangeTo(id); return; }
   if (selected.size > 0) { ev.preventDefault(); toggle(id); return; }
-  OpenShareLoading.pageBusy('Opening item…');
-  location.href = wrap.dataset.href;
+  OpenShareLoading.navigateWithBusy(wrap.dataset.href, 'Opening item…');
 });
 
 selClear.addEventListener('click', () => { selected.clear(); anchor=null; refreshSelection(); });

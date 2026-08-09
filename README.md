@@ -21,9 +21,9 @@ share links — and doubles as the upload/attachment backend for
   <img src="docs/screenshots/file-view-mobile.png" alt="OpenShare mobile file viewer" width="390" />
 </p>
 
-### Audio playback
+### Directory tree
 
-![OpenShare audio viewer playing a waveform](docs/screenshots/audio-viewer.png)
+![OpenShare expanded directory tree](docs/screenshots/tree-view.png)
 
 ## Support
 

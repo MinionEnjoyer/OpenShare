@@ -1,5 +1,9 @@
 # OpenShare
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/MinionEnjoyer/OpenShare/main/static/logo.png" alt="OpenShare logo" width="144" height="144" />
+</p>
+
 [OpenShare](https://github.com/MinionEnjoyer/OpenShare) is a self-hosted file and media library
 with OpenID Connect authentication, responsive React viewers, folders, search, thumbnails, and
 recorded share links. It also serves as the native attachment and media backend for

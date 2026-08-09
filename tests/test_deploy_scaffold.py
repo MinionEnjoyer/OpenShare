@@ -8,6 +8,7 @@ DEPLOYER = ROOT / "ops" / "systemd" / "openshare-autodeploy.sh"
 DOCKERFILE = ROOT / "Dockerfile"
 PUBLIC_COMPOSE = ROOT / "docker-compose.public.yml"
 CONTAINER_WORKFLOW = ROOT / ".github" / "workflows" / "container-release.yml"
+DOCKERHUB_OVERVIEW = ROOT / "docs" / "dockerhub" / "openshare.md"
 
 
 def test_deployer_gates_the_exact_main_sha_and_health_version():
@@ -41,5 +42,8 @@ def test_public_container_release_is_ci_gated_and_multi_arch():
     assert "vars.DOCKERHUB_NAMESPACE" in workflow
     assert "secrets.DOCKERHUB_TOKEN" in workflow
     assert "docker buildx imagetools create" in workflow
+    assert "peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa" in workflow
+    assert "readme-filepath: docs/dockerhub/openshare.md" in workflow
+    assert DOCKERHUB_OVERVIEW.read_text(encoding="utf-8").startswith("# OpenShare\n")
     assert "push-to-registry: true" in workflow
     assert "${OPENSHARE_IMAGE:-ghcr.io/minionenjoyer/openshare}:${OPENSHARE_VERSION:-latest}" in compose

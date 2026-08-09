@@ -101,6 +101,17 @@ jobs:
             --tag "${DOCKERHUB_IMAGE}:sha-${SHORT_SHA}" \
             "ghcr.io/minionenjoyer/openshare@${SOURCE_DIGEST}"
 
+      - name: Update Docker Hub repository overview
+        if: ${{ vars.DOCKERHUB_USERNAME != '' && vars.DOCKERHUB_NAMESPACE != '' }}
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ vars.DOCKERHUB_NAMESPACE }}/openshare
+          short-description: Self-hosted file and media library with share links and native OpenChat integration.
+          readme-filepath: docs/dockerhub/openshare.md
+          enable-url-completion: true
+
       - name: Attest image provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:

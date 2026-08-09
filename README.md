@@ -100,6 +100,9 @@ The Compose file defaults to `ghcr.io/minionenjoyer/openshare:latest`. Set
 immutable deployment. Set `OPENSHARE_IMAGE=<namespace>/openshare` to pull the Docker Hub mirror.
 Source builds remain available through the standard `docker-compose.yml`.
 
+The Docker Hub overview is maintained in `docs/dockerhub/openshare.md` and synchronized by the same
+CI-gated publication workflow, including its short description and deployment guidance.
+
 Maintainers enable Docker Hub publishing with `DOCKERHUB_USERNAME` and `DOCKERHUB_NAMESPACE`
 repository variables and a `DOCKERHUB_TOKEN` repository secret. The token should be a dedicated
 Docker Hub personal or organization access token with read/write permission for the public

@@ -37,5 +37,9 @@ def test_public_container_release_is_ci_gated_and_multi_arch():
     assert "ref: ${{ github.event.workflow_run.head_sha }}" in workflow
     assert "platforms: linux/amd64,linux/arm64" in workflow
     assert "ghcr.io/minionenjoyer/openshare" in workflow
+    assert "vars.DOCKERHUB_USERNAME" in workflow
+    assert "vars.DOCKERHUB_NAMESPACE" in workflow
+    assert "secrets.DOCKERHUB_TOKEN" in workflow
+    assert "docker buildx imagetools create" in workflow
     assert "push-to-registry: true" in workflow
-    assert "ghcr.io/minionenjoyer/openshare:${OPENSHARE_VERSION:-latest}" in compose
+    assert "${OPENSHARE_IMAGE:-ghcr.io/minionenjoyer/openshare}:${OPENSHARE_VERSION:-latest}" in compose

@@ -1,4 +1,4 @@
-import { ChangeEvent, CSSProperties, DragEvent, MouseEvent, useRef, useState } from 'react';
+import { ChangeEvent, CSSProperties, DragEvent, MouseEvent, useMemo, useRef, useState } from 'react';
 import { FolderWorkspace } from './FolderWorkspace';
 import { Spinner } from './Spinner';
 import type { LibraryData, LibraryItem } from './types';
@@ -21,14 +21,31 @@ export function LibraryApp({ data }: { data: LibraryData }) {
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [moving, setMoving] = useState(false);
+  const [uploadFolderId, setUploadFolderId] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const uploadDestinations = useMemo(() => {
+    const byId = new Map(data.allFolders.map((folder) => [folder.id, folder]));
+    const labelFor = (folderId: string) => {
+      const names: string[] = [];
+      const visited = new Set<string>();
+      let candidate = byId.get(folderId);
+      while (candidate && !visited.has(candidate.id)) {
+        names.unshift(candidate.name);
+        visited.add(candidate.id);
+        candidate = candidate.parent_id ? byId.get(candidate.parent_id) : undefined;
+      }
+      return names.join(' / ');
+    };
+    return data.allFolders.map((folder) => ({ id: folder.id, label: labelFor(folder.id) })).sort((a, b) => a.label.localeCompare(b.label));
+  }, [data.allFolders]);
+  const uploadDestinationName = uploadFolderId ? uploadDestinations.find((folder) => folder.id === uploadFolderId)?.label ?? 'Selected folder' : 'Unsorted';
 
   const upload = async (files: FileList | File[]) => {
     if (!files.length || uploading) return;
     setUploading(true); setError(''); setProgress(`Uploading and processing ${files.length} ${files.length === 1 ? 'file' : 'files'}…`);
     const body = new FormData();
     [...files].forEach((file) => body.append('files', file));
-    if (data.currentFolder) body.set('folder_id', data.currentFolder.id);
+    body.set('folder_id', uploadFolderId);
     try {
       const response = await fetch('/upload', { method: 'POST', body, credentials: 'same-origin' });
       const result = await response.json().catch(() => ({})) as { saved?: unknown[]; rejected?: Array<{ name: string; reason: string }> };
@@ -39,7 +56,8 @@ export function LibraryApp({ data }: { data: LibraryData }) {
       }
       if (saved) {
         setProgress(`Uploaded ${saved}. Refreshing…`);
-        window.setTimeout(() => window.location.reload(), 450);
+        const destinationUrl = uploadFolderId ? `/folder/${encodeURIComponent(uploadFolderId)}` : '/';
+        window.setTimeout(() => window.location.assign(destinationUrl), 450);
       } else {
         setProgress(''); setUploading(false);
       }
@@ -99,13 +117,19 @@ export function LibraryApp({ data }: { data: LibraryData }) {
       {data.currentFolder ? <section className="active-folder" style={{ '--folder-color': data.currentFolder.color } as CSSProperties} aria-label={`Current folder ${data.currentFolder.name}`}>
         <span className="active-folder-orbit" aria-hidden="true"><span>{data.currentFolder.icon}</span></span>
         <div><span className="eyebrow">Current folder</span><h1>{data.currentFolder.name}</h1><p>{data.items.length} {data.items.length === 1 ? 'file' : 'files'} · {data.subfolders.length} {data.subfolders.length === 1 ? 'folder' : 'folders'}</p></div>
-      </section> : <div className="os-library-title"><span className="eyebrow">Personal library</span><h1>Your files</h1><p>Upload, organize, preview, and share from one workspace.</p></div>}
+      </section> : <div className="os-library-title">
+        <div><span className="eyebrow">Personal library</span><h1>Your files</h1><p>Upload, organize, preview, and share from one workspace.</p></div>
+        <div className="os-library-summary" aria-label="Library summary">
+          <span><strong>{data.subfolders.length}</strong> {data.subfolders.length === 1 ? 'folder' : 'folders'}</span>
+          <span><strong>{data.items.length}</strong> unsorted</span>
+        </div>
+      </div>}
     </header>
 
     <section className="os-work-area os-upload-area" aria-labelledby="os-upload-title">
       <header className="os-area-heading">
         <div><span className="eyebrow">Add content</span><h2 id="os-upload-title">Upload files</h2><p>Drop files into the destination below or choose them from this device.</p></div>
-        <span className="os-area-count">Destination: {data.currentFolder?.name ?? 'Unsorted'}</span>
+        <span className="os-area-count">Destination: {uploadDestinationName}</span>
       </header>
       <div
         className={`upload-zone ${dragging ? 'dragover' : ''} ${uploading ? 'busy' : ''}`}
@@ -114,7 +138,11 @@ export function LibraryApp({ data }: { data: LibraryData }) {
         onDragLeave={(event) => { if (event.currentTarget === event.target) setDragging(false); }}
         onDrop={(event) => { event.preventDefault(); setDragging(false); void upload(event.dataTransfer.files); }}
       >
-        <div className="upload-main"><div className="upload-icon" aria-hidden="true"><span>↑</span></div><div className="upload-prompt"><strong>Drop files here</strong><span className="muted">or</span><label className="btn primary"><input ref={inputRef} type="file" multiple hidden accept={uploadAccept} disabled={uploading} onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void upload(event.target.files); }} />Choose files</label></div><div className="upload-target muted">Uploads will be saved to {data.currentFolder?.name ?? 'Unsorted'}</div></div>
+        <div className="upload-main">
+          <div className="upload-icon" aria-hidden="true"><span>↑</span></div>
+          <div className="upload-prompt"><strong>Drop files here</strong><span className="muted">or</span><label className="btn primary"><input ref={inputRef} type="file" multiple hidden accept={uploadAccept} disabled={uploading} onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void upload(event.target.files); }} />Choose files</label></div>
+          <label className="os-upload-destination"><span>Save to</span><select aria-label="Upload destination" value={uploadFolderId} disabled={uploading} onChange={(event) => setUploadFolderId(event.target.value)}><option value="">Unsorted</option>{uploadDestinations.map((folder) => <option value={folder.id} key={folder.id}>{folder.label}</option>)}</select></label>
+        </div>
         {progress && <div className="progress muted" role="status"><Spinner size="sm" label="Uploading files" /> {progress}</div>}
         {error && <div className="progress error" role="alert">{error}</div>}
       </div>

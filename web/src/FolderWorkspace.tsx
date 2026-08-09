@@ -201,8 +201,8 @@ function TreeBrowser({ folders, currentFolder, onClose }: {
               return <div key={row.id} className="os-tree-item" role="none" style={style} data-depth={row.depth} data-branch={row.isLast ? 'last' : 'continuing'}>
                 <div className={`os-tree-row ${isCurrent ? 'is-current' : ''}`} role="treeitem" aria-level={row.depth + 2} aria-expanded={row.children.length ? isExpanded : undefined} aria-current={isCurrent ? 'page' : undefined}>
                   <span className="os-tree-branches" aria-hidden="true">
-                    {row.ancestorContinuations.map((continues, depth) => <span className={`os-tree-guide ${continues ? 'is-continuing' : ''}`} key={depth} />)}
-                    <span className={`os-tree-elbow ${row.isLast ? 'is-last' : ''}`} />
+                    {row.ancestorContinuations.map((continues, depth) => <span className={`os-tree-guide ${continues ? 'is-continuing' : ''}`} key={depth}>{continues ? '│' : ''}</span>)}
+                    <span className={`os-tree-elbow ${row.isLast ? 'is-last' : ''}`}>{row.isLast ? '└─' : '├─'}</span>
                   </span>
                   {row.children.length ? <button className="os-tree-disclosure" type="button" aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${row.name}`} onClick={() => toggle(row.id)} tabIndex={-1}><span>{isExpanded ? '−' : '+'}</span></button> : <span className="os-tree-leaf" aria-hidden="true">·</span>}
                   <a href={`/folder/${encodeURIComponent(row.id)}`} className="os-tree-target" data-tree-id={row.id} onKeyDown={(event) => onTreeKeyDown(event, row, index)}>

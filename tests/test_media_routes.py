@@ -1,9 +1,13 @@
 import io
+import json
+import re
 import zipfile
 
 import pytest
 
-from conftest import OpenShareHarness, OTHER_OWNER, OWNER, PNG_1X1
+import db
+import main
+from conftest import OpenShareHarness, OTHER_OWNER, OWNER, PNG_1X1, run
 
 
 pytestmark = pytest.mark.integration
@@ -65,6 +69,36 @@ def test_every_media_type_uses_the_shared_react_viewer_shell(harness: OpenShareH
     assert '"canManage"' in response.text
     assert '/static/react/assets/openshare.js' in response.text
     assert '<footer class="app-version"' not in response.text
+
+
+def test_owner_viewer_navigation_spans_media_types_without_exposing_public_neighbors(
+    harness: OpenShareHarness, monkeypatch: pytest.MonkeyPatch
+):
+    saved = harness.upload(
+        ("photo.png", PNG_1X1, "image/png"),
+        ("movie.mp4", b"fake video", "video/mp4"),
+        ("sound.wav", b"fake audio", "audio/wav"),
+    ).json()["saved"]
+    route_for = {"image": "i", "video": "v", "audio": "au"}
+    saved_ids = {item["id"] for item in saved}
+    ordered = [item for item in run(db.list_media_in_folder(OWNER["sub"], None)) if item["id"] in saved_ids]
+    previous, active, following = ordered
+
+    monkeypatch.setattr(main.auth, "user_from_session", lambda _session: OWNER)
+    response = harness.client.get(f"/{route_for[active['media_type']]}/{active['id']}")
+    match = re.search(r'<script id="media-viewer-data" type="application/json">(.*?)</script>', response.text)
+    assert match is not None
+    navigation = json.loads(match.group(1))["navigation"]
+    assert navigation["position"] == 2
+    assert navigation["total"] == 3
+    assert navigation["previous"]["viewUrl"] == f"/{route_for[previous['media_type']]}/{previous['id']}"
+    assert navigation["next"]["viewUrl"] == f"/{route_for[following['media_type']]}/{following['id']}"
+
+    monkeypatch.setattr(main.auth, "user_from_session", lambda _session: None)
+    public_response = harness.client.get(f"/{route_for[active['media_type']]}/{active['id']}")
+    public_match = re.search(r'<script id="media-viewer-data" type="application/json">(.*?)</script>', public_response.text)
+    assert public_match is not None
+    assert json.loads(public_match.group(1))["navigation"] is None
 
 
 def test_audio_upload_exposes_stored_waveform(harness: OpenShareHarness):

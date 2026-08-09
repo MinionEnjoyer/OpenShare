@@ -236,13 +236,13 @@ async def _list_media_in_folder(connection, owner_sub: str, folder_id: str | Non
     if folder_id is None:
         sql = (
             "SELECT * FROM media WHERE owner_sub=? AND folder_id IS NULL "
-            "AND source_app='personal' ORDER BY uploaded_at DESC"
+            "AND source_app='personal' ORDER BY uploaded_at DESC, id DESC"
         )
         args: tuple = (owner_sub,)
     else:
         sql = (
             "SELECT * FROM media WHERE owner_sub=? AND folder_id=? "
-            "AND source_app='personal' ORDER BY uploaded_at DESC"
+            "AND source_app='personal' ORDER BY uploaded_at DESC, id DESC"
         )
         args = (owner_sub, folder_id)
     async with connection.execute(sql, args) as cur:
@@ -253,6 +253,41 @@ async def list_media_in_folder(owner_sub: str, folder_id: str | None):
     async with connect_db() as connection:
         connection.row_factory = aiosqlite.Row
         return await _list_media_in_folder(connection, owner_sub, folder_id)
+
+
+async def media_directory_navigation(
+    media_id: str, owner_sub: str, folder_id: str | None
+) -> dict | None:
+    """Return the current media position and immediate siblings in display order."""
+    folder_clause = "folder_id IS NULL" if folder_id is None else "folder_id=?"
+    args = (owner_sub,) if folder_id is None else (owner_sub, folder_id)
+    async with connect_db() as connection:
+        connection.row_factory = aiosqlite.Row
+        async with connection.execute(
+            f"""
+            WITH ranked AS (
+                SELECT id, original_name, media_type,
+                       ROW_NUMBER() OVER (ORDER BY uploaded_at DESC, id DESC) AS position,
+                       COUNT(*) OVER () AS total
+                FROM media
+                WHERE owner_sub=? AND {folder_clause} AND source_app='personal'
+            )
+            SELECT active.position, active.total,
+                   previous.id AS previous_id,
+                   previous.original_name AS previous_name,
+                   previous.media_type AS previous_media_type,
+                   following.id AS next_id,
+                   following.original_name AS next_name,
+                   following.media_type AS next_media_type
+            FROM ranked active
+            LEFT JOIN ranked previous ON previous.position=active.position-1
+            LEFT JOIN ranked following ON following.position=active.position+1
+            WHERE active.id=?
+            """,
+            (*args, media_id),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
 
 
 async def delete_media(media_id: str, owner_sub: str) -> bool:

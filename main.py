@@ -1142,7 +1142,7 @@ async def bulk_delete(
 # ---------- Public view pages ----------
 
 
-def _viewer_response(
+async def _viewer_response(
     request: Request,
     item: dict,
     *,
@@ -1159,6 +1159,30 @@ def _viewer_response(
     back_url = (
         f"/folder/{item['folder_id']}" if can_manage and item.get("folder_id") else "/"
     )
+    navigation = None
+    if can_manage and item.get("source_app", "personal") == "personal":
+        position = await db.media_directory_navigation(
+            item["id"], item["owner_sub"], item.get("folder_id")
+        )
+        if position:
+            def sibling(direction: str) -> dict | None:
+                sibling_id = position.get(f"{direction}_id")
+                media_type = position.get(f"{direction}_media_type")
+                if not sibling_id or not media_type:
+                    return None
+                return {
+                    "id": sibling_id,
+                    "name": position[f"{direction}_name"],
+                    "mediaType": media_type,
+                    "viewUrl": f"/{_VIEW_PREFIXES.get(media_type, 'd')}/{sibling_id}",
+                }
+
+            navigation = {
+                "position": position["position"],
+                "total": position["total"],
+                "previous": sibling("previous"),
+                "next": sibling("next"),
+            }
     viewer_data = {
         "id": item["id"],
         "name": item["original_name"],
@@ -1178,6 +1202,7 @@ def _viewer_response(
         "textTruncated": text_truncated,
         "modelExtension": model_extension,
         "modelMaterial": model_material,
+        "navigation": navigation,
     }
     return templates.TemplateResponse(request=request, name="view_media.html", context={
         "item": item,
@@ -1192,7 +1217,7 @@ async def _view(request: Request, media_id: str, expected: str):
     item = await db.get_media(media_id)
     if not item or item["media_type"] != expected:
         raise HTTPException(404)
-    return _viewer_response(request, item)
+    return await _viewer_response(request, item)
 
 
 @app.get("/i/{media_id}", response_class=HTMLResponse)
@@ -1210,7 +1235,7 @@ async def view_pdf(request: Request, media_id: str):
     item = await db.get_media(media_id)
     if not item or item["media_type"] != "pdf":
         raise HTTPException(404)
-    return _viewer_response(request, item)
+    return await _viewer_response(request, item)
 
 
 _HLJS_LANG_BY_EXT = {
@@ -1238,7 +1263,7 @@ async def view_archive(request: Request, media_id: str):
     item = await db.get_media(media_id)
     if not item or item["media_type"] != "archive":
         raise HTTPException(404)
-    return _viewer_response(request, item)
+    return await _viewer_response(request, item)
 
 
 @app.get("/au/{media_id}", response_class=HTMLResponse)
@@ -1246,7 +1271,7 @@ async def view_audio(request: Request, media_id: str):
     item = await db.get_media(media_id)
     if not item or item["media_type"] != "audio":
         raise HTTPException(404)
-    return _viewer_response(request, item)
+    return await _viewer_response(request, item)
 
 
 @app.get("/t/{media_id}", response_class=HTMLResponse)
@@ -1266,7 +1291,7 @@ async def view_text(request: Request, media_id: str):
         body, truncated = "(unable to read file)", False
     ext = Path(item["original_name"]).suffix.lower()
     lang = _HLJS_LANG_BY_EXT.get(ext, "plaintext")
-    return _viewer_response(
+    return await _viewer_response(
         request,
         item,
         text_body=body,
@@ -1288,7 +1313,7 @@ async def view_model(request: Request, media_id: str):
             if sibling.suffix.lower() == ".mtl":
                 mtl_name = sibling.name
                 break
-    return _viewer_response(
+    return await _viewer_response(
         request,
         item,
         model_extension=ext,

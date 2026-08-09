@@ -63,4 +63,17 @@ export type MediaViewerData = {
   textTruncated: boolean;
   modelExtension: string | null;
   modelMaterial: string | null;
+  navigation: {
+    position: number;
+    total: number;
+    previous: MediaViewerSibling | null;
+    next: MediaViewerSibling | null;
+  } | null;
+};
+
+export type MediaViewerSibling = {
+  id: string;
+  name: string;
+  mediaType: MediaViewerData['mediaType'];
+  viewUrl: string;
 };

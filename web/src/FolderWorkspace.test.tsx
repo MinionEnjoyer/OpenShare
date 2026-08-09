@@ -50,6 +50,7 @@ describe('React folder workspace', () => {
     expect(nested).toHaveAttribute('aria-level', '3');
     expect(nested.closest('.os-tree-item')).toHaveAttribute('data-depth', '1');
     expect(nested.closest('.os-tree-item')?.querySelector('.os-tree-guide')).toHaveClass('is-continuing');
+    expect(nested.closest('.os-tree-item')?.querySelector('.os-tree-elbow')).toHaveTextContent('└─');
 
     fireEvent.change(within(dialog).getByRole('searchbox', { name: 'Find a folder' }), { target: { value: 'draft' } });
     expect(within(dialog).getByRole('treeitem', { name: /Drafts/ })).toBeInTheDocument();

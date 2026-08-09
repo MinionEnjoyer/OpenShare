@@ -55,7 +55,9 @@ If OpenShare is useful to you, project support is available through
   direct navigation to each result and a clear path to the complete owner-scoped result set.
 - **Private contact manager** with owner-scoped search, color-coded groups, rich contact details,
   notes, birthdays, vCard/CSV import, vCard export, and optional OpenChat username or 8-digit friend
-  code links. OpenShare never sends unrelated contact fields to OpenChat.
+  code links. OpenShare never sends unrelated contact fields to OpenChat. See
+  [Contacts and spreadsheets](docs/CONTACTS_AND_SPREADSHEETS.md) for usage, privacy boundaries,
+  formats, and APIs.
 - **Structured library workspace** with distinct upload, folder, and unsorted-file areas, balanced
   card spacing, responsive controls, and consistent empty, loading, and error states.
 - **Companion collections** — when OpenChat is configured, its attachments, stickers, avatars,

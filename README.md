@@ -9,6 +9,18 @@ OpenID Connect login. It provides in-browser viewers, automatic thumbnails, fold
 share links — and doubles as the upload/attachment backend for
 **[OpenChat](https://github.com/MinionEnjoyer/OpenChat)**.
 
+## Screenshots
+
+### Desktop folder workspace
+
+![OpenShare desktop folder workspace](docs/screenshots/folder-view-desktop.png)
+
+### Mobile file viewer
+
+<p align="center">
+  <img src="docs/screenshots/file-view-mobile.png" alt="OpenShare mobile file viewer" width="390" />
+</p>
+
 ## Support
 
 If OpenShare is useful to you, project support is available through

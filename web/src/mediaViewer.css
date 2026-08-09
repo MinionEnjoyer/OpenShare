@@ -9,6 +9,15 @@
 .os-viewer-actions a, .os-viewer-actions button, .os-media-footer button, .os-archive-surface a { min-height:36px; padding:.42rem .68rem; border:1px solid var(--line); border-radius:8px; color:var(--fg); background:var(--bg-soft); cursor:pointer; font:inherit; font-size:.73rem; font-weight:700; }
 .os-viewer-actions a:hover, .os-viewer-actions button:hover { border-color:var(--line-strong); background:var(--card-raised); }
 .os-media-stage { position:relative; min-width:0; min-height:0; overflow:hidden; background:linear-gradient(145deg,#090d14,#0d131d); }
+.os-media-pager { position:absolute; inset:0; z-index:5; pointer-events:none; }
+.os-media-skip { position:absolute; top:50%; display:flex; align-items:center; gap:.35rem; min-height:50px; padding:.4rem .55rem; border:1px solid var(--line); border-radius:12px; color:var(--fg); background:rgba(8,11,17,.76); box-shadow:0 10px 28px rgba(0,0,0,.28); opacity:.72; transform:translateY(-50%); backdrop-filter:blur(12px); pointer-events:auto; transition:opacity 120ms ease,border-color 120ms ease,transform 120ms ease; }
+.os-media-skip:hover, .os-media-skip:focus-visible { opacity:1; border-color:color-mix(in srgb,var(--accent) 65%,var(--line)); }
+.os-media-skip.is-previous { left:.7rem; }
+.os-media-skip.is-next { right:.7rem; }
+.os-media-skip span { color:var(--accent); font-size:1.75rem; line-height:1; }
+.os-media-skip.is-next span { color:var(--accent-green); }
+.os-media-skip small { max-width:0; overflow:hidden; opacity:0; font-size:.68rem; font-weight:750; white-space:nowrap; transition:max-width 160ms ease,opacity 120ms ease; }
+.os-media-skip:hover small, .os-media-skip:focus-visible small { max-width:5rem; opacity:1; }
 .os-media-footer { position:relative; display:flex; align-items:center; gap:.75rem; min-height:48px; padding:.55rem 1rem; border-top:1px solid var(--line); color:var(--muted); font-size:.7rem; }
 .os-media-footer form { margin:0 0 0 auto; }
 .os-media-footer strong { position:absolute; left:50%; color:var(--muted); transform:translateX(-50%); white-space:nowrap; }
@@ -65,4 +74,8 @@
   .os-audio-time { grid-column:2; }
   .os-waveform { height:60px; }
   .os-image-controls { top:.45rem; }
+  .os-media-skip { min-height:44px; padding:.32rem .45rem; border-radius:10px; }
+  .os-media-skip.is-previous { left:.4rem; }
+  .os-media-skip.is-next { right:.4rem; }
+  .os-media-skip small { display:none; }
 }

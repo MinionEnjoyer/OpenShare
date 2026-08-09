@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { LibraryApp } from './LibraryApp';
 import { MediaViewer } from './MediaViewer';
@@ -11,6 +11,11 @@ const viewerData: MediaViewerData = {
   canManage: true, backUrl: '/', deleteUrl: '/delete/image-1', shareUrl: '/media/image-1/shares',
   waveformUrl: null, textBody: null, textLanguage: null, textTruncated: false,
   modelExtension: null, modelMaterial: null,
+  navigation: {
+    position: 2, total: 3,
+    previous: { id: 'video-1', name: 'intro.mp4', mediaType: 'video', viewUrl: '/v/video-1' },
+    next: { id: 'audio-1', name: 'theme.wav', mediaType: 'audio', viewUrl: '/au/audio-1' },
+  },
 };
 
 const libraryData: LibraryData = {
@@ -51,10 +56,22 @@ describe('React application surfaces', () => {
     Object.defineProperty(image, 'naturalHeight', { configurable: true, value: 800 });
     fireEvent.load(image);
     expect(screen.getByRole('img', { name: 'launch.png' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Previous file: intro.mp4' })).toHaveAttribute('href', '/v/video-1');
+    expect(screen.getByRole('link', { name: 'Next file: theme.wav' })).toHaveAttribute('href', '/au/audio-1');
+    expect(screen.getByText(/2 of 3/)).toBeInTheDocument();
     expect(screen.getByText('OpenShare v0.2.35')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Share' }));
     expect(await screen.findByText('Share link created and saved')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith('/media/image-1/shares', { method: 'POST', credentials: 'same-origin' });
+  });
+
+  it('uses unmodified arrow keys to browse neighboring files', () => {
+    const navigate = vi.fn();
+    render(<MediaViewer data={viewerData} navigate={navigate} />);
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(navigate).toHaveBeenCalledWith('/au/audio-1');
+    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    expect(navigate).toHaveBeenLastCalledWith('/v/video-1');
   });
 
   it('keeps the React upload surface above folders and media', () => {
@@ -67,5 +84,25 @@ describe('React application surfaces', () => {
     expect(screen.getByRole('heading', { name: 'Folders' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Unsorted files' })).toBeInTheDocument();
     expect(screen.getByText('Files that have not been organized into a folder yet.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Library summary')).toHaveTextContent('1 folder');
+    expect(screen.getByLabelText('Library summary')).toHaveTextContent('1 unsorted');
+  });
+
+  it('uses the selected folder for picker and drag-and-drop uploads', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ saved: [] }), { status: 200 }));
+    fetchMock.mockClear();
+    const { container } = render(<LibraryApp data={libraryData} />);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Upload destination' }), { target: { value: 'design' } });
+    expect(screen.getByText('Destination: Design')).toBeInTheDocument();
+    fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [new File(['sample'], 'sample.txt', { type: 'text/plain' })] } });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const request = fetchMock.mock.calls.find(([url]) => url === '/upload')?.[1] as RequestInit;
+    expect((request.body as FormData).get('folder_id')).toBe('design');
+  });
+
+  it('defaults uploads to Unsorted even while viewing a folder', () => {
+    render(<LibraryApp data={{ ...libraryData, currentFolder: libraryData.allFolders[0], breadcrumb: [{ id: 'design', name: 'Design' }] }} />);
+    expect(screen.getByRole('combobox', { name: 'Upload destination' })).toHaveValue('');
+    expect(screen.getByText('Destination: Unsorted')).toBeInTheDocument();
   });
 });

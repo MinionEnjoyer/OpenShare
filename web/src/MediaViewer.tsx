@@ -7,6 +7,11 @@ const formatTime = (seconds: number) => {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
   return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
 };
+const browserNavigate = (url: string) => window.location.assign(url);
+const acceptsDirectionalInput = (target: EventTarget | null) => {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT', 'AUDIO', 'VIDEO'].includes(target.tagName);
+};
 
 function ImageSurface({ data }: { data: MediaViewerData }) {
   const stageRef = useRef<HTMLDivElement>(null);
@@ -144,17 +149,23 @@ function MediaSurface({ data }: { data: MediaViewerData }) {
   return <div className="os-archive-surface"><span aria-hidden="true">▣</span><strong>{data.name}</strong><small>{data.sizeLabel} archive</small><a href={data.rawUrl} download={data.name}>Download to open</a></div>;
 }
 
-export function MediaViewer({ data }: { data: MediaViewerData }) {
+export function MediaViewer({ data, navigate = browserNavigate }: { data: MediaViewerData; navigate?: (url: string) => void }) {
   const [notice, setNotice] = useState('');
   const [sharing, setSharing] = useState(false);
   useEffect(() => {
     if (data.mediaType === 'model') document.dispatchEvent(new CustomEvent('openshare:model-ready'));
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'Escape') window.location.assign(data.backUrl);
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || acceptsDirectionalInput(event.target)) return;
+      const destination = event.key === 'ArrowLeft' ? data.navigation?.previous : event.key === 'ArrowRight' ? data.navigation?.next : null;
+      if (destination) {
+        event.preventDefault();
+        navigate(destination.viewUrl);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [data.backUrl, data.mediaType]);
+  }, [data.backUrl, data.mediaType, data.navigation, navigate]);
   const share = async () => {
     setSharing(true); setNotice('');
     try {
@@ -179,9 +190,15 @@ export function MediaViewer({ data }: { data: MediaViewerData }) {
           <a href={data.rawUrl} download={data.name}>Download</a>
         </div>
       </header>
-      <div className={`os-media-stage is-${data.mediaType}`}><MediaSurface data={data} /></div>
+      <div className={`os-media-stage is-${data.mediaType}`}>
+        <MediaSurface data={data} />
+        {data.navigation && data.navigation.total > 1 && <nav className="os-media-pager" aria-label="Files in this folder">
+          {data.navigation.previous && <a className="os-media-skip is-previous" href={data.navigation.previous.viewUrl} aria-label={`Previous file: ${data.navigation.previous.name}`} title={`${data.navigation.previous.name} (Left arrow)`}><span aria-hidden="true">‹</span><small>Previous</small></a>}
+          {data.navigation.next && <a className="os-media-skip is-next" href={data.navigation.next.viewUrl} aria-label={`Next file: ${data.navigation.next.name}`} title={`${data.navigation.next.name} (Right arrow)`}><small>Next</small><span aria-hidden="true">›</span></a>}
+        </nav>}
+      </div>
       <footer className="os-media-footer">
-        <span>{notice || 'Escape returns to the library'}</span>
+        <span>{notice || (data.navigation && data.navigation.total > 1 ? `${data.navigation.position} of ${data.navigation.total} · Use ← → to browse · Escape returns` : 'Escape returns to the library')}</span>
         {data.canManage && <form action={data.deleteUrl} method="post" onSubmit={(event) => { if (!window.confirm(`Delete ${data.name}?`)) event.preventDefault(); }}><button className="danger" type="submit">Delete</button></form>}
         <strong>OpenShare v{data.appVersion}</strong>
       </footer>

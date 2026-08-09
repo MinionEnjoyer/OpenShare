@@ -1,6 +1,6 @@
 services:
   openshare:
-    image: ghcr.io/minionenjoyer/openshare:${OPENSHARE_VERSION:-latest}
+    image: ${OPENSHARE_IMAGE:-ghcr.io/minionenjoyer/openshare}:${OPENSHARE_VERSION:-latest}
     container_name: openshare
     restart: unless-stopped
     ports:

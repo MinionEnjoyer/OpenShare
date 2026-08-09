@@ -86,7 +86,9 @@ and set `PUBLIC_URL` to the public HTTPS URL.
 ### Public container
 
 Release images for AMD64 and ARM64 are published to the GitHub Container Registry after the exact
-`main` commit passes CI. Copy `.env.example` to `.env`, configure it, and start the published image:
+`main` commit passes CI. A configured Docker Hub mirror receives the exact verified image digest
+and the same `latest`, version, and `sha-<commit>` tags. Copy `.env.example` to `.env`, configure
+it, and start the published image:
 
 ```bash
 docker compose -f docker-compose.public.yml pull
@@ -95,7 +97,14 @@ docker compose -f docker-compose.public.yml up -d
 
 The Compose file defaults to `ghcr.io/minionenjoyer/openshare:latest`. Set
 `OPENSHARE_VERSION=0.2.35` to pin this release, or use the published `sha-<commit>` tag for an
-immutable deployment. Source builds remain available through the standard `docker-compose.yml`.
+immutable deployment. Set `OPENSHARE_IMAGE=<namespace>/openshare` to pull the Docker Hub mirror.
+Source builds remain available through the standard `docker-compose.yml`.
+
+Maintainers enable Docker Hub publishing with `DOCKERHUB_USERNAME` and `DOCKERHUB_NAMESPACE`
+repository variables and a `DOCKERHUB_TOKEN` repository secret. The token should be a dedicated
+Docker Hub personal or organization access token with read/write permission for the public
+`openshare` repository. If those settings are absent, the release remains GHCR-only and does not
+fail.
 
 ### Configuration
 

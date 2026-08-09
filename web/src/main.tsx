@@ -5,6 +5,7 @@ import type { PublicFolderData } from './PublicFolder';
 import type { LibraryData, MediaViewerData } from './types';
 import './workspace.css';
 import './mediaViewer.css';
+import './contactManager.css';
 import { applyTheme, storedTheme } from './theme';
 import { applyPreferences, storedPreferences } from './preferences';
 
@@ -54,5 +55,15 @@ if (publicRoot && publicSource?.textContent) {
   const data = JSON.parse(publicSource.textContent) as PublicFolderData;
   void import('./PublicFolder').then(({ PublicFolder }) => {
     createRoot(publicRoot).render(<React.StrictMode><PublicFolder data={data} /></React.StrictMode>);
+  });
+}
+
+const contactsRoot = document.getElementById('contact-manager-root');
+const contactsSource = document.getElementById('contact-manager-data');
+if (contactsRoot && contactsSource?.textContent) {
+  applyTheme(storedTheme());
+  const data = JSON.parse(contactsSource.textContent) as { appVersion: string; openChatUrl: string | null };
+  void import('./ContactManager').then(({ ContactManager }) => {
+    createRoot(contactsRoot).render(<React.StrictMode><ContactManager data={data} /></React.StrictMode>);
   });
 }

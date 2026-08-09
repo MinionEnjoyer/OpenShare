@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Contacts — OpenShare{% endblock %}
+{% block content %}
+<div id="contact-manager-root"></div>
+<script id="contact-manager-data" type="application/json">{{ contact_data|tojson }}</script>
+<noscript><p class="page-error">The contact manager requires JavaScript.</p></noscript>
+{% endblock %}

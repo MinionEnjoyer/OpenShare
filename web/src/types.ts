@@ -47,7 +47,7 @@ export type FlatFolderNode = FolderNode & {
 export type MediaViewerData = {
   id: string;
   name: string;
-  mediaType: 'image' | 'video' | 'audio' | 'pdf' | 'text' | 'archive' | 'model';
+  mediaType: 'image' | 'video' | 'audio' | 'pdf' | 'text' | 'archive' | 'model' | 'spreadsheet';
   rawUrl: string;
   thumbUrl: string | null;
   ownerUsername: string;
@@ -58,6 +58,7 @@ export type MediaViewerData = {
   deleteUrl: string;
   shareUrl: string;
   waveformUrl: string | null;
+  spreadsheetUrl: string | null;
   textBody: string | null;
   textLanguage: string | null;
   textTruncated: boolean;

@@ -3,13 +3,14 @@ import { FolderWorkspace } from './FolderWorkspace';
 import { Spinner } from './Spinner';
 import type { LibraryData, LibraryItem } from './types';
 
-const uploadAccept = 'image/*,video/*,audio/*,text/*,application/pdf,application/json,application/xml,.stl,.obj,.fbx,.3mf,.step,.stp,.mtl,.zip,.rar,.7z,.tar,.gz,.tgz,.bz2,.xz,.txt,.md,.json,.yaml,.yml,.toml,.ini,.cfg,.csv,.tsv,.xml,.html,.css,.sh,.py,.js,.ts,.go,.rs,.java,.c,.h,.cpp,.hpp,.sql,.log';
+const uploadAccept = 'image/*,video/*,audio/*,text/*,application/pdf,application/json,application/xml,.xlsx,.xlsm,.xls,.xlsb,.ods,.csv,.tsv,.stl,.obj,.fbx,.3mf,.step,.stp,.mtl,.zip,.rar,.7z,.tar,.gz,.tgz,.bz2,.xz,.txt,.md,.json,.yaml,.yml,.toml,.ini,.cfg,.xml,.html,.css,.sh,.py,.js,.ts,.go,.rs,.java,.c,.h,.cpp,.hpp,.sql,.log';
 
 function itemGlyph(item: LibraryItem) {
   if (item.mediaType === 'audio') return '♪';
   if (item.mediaType === 'archive') return '▣';
   if (item.mediaType === 'model') return '◇';
   if (item.mediaType === 'pdf') return 'PDF';
+  if (item.mediaType === 'spreadsheet') return 'XLS';
   if (item.mediaType === 'text') return item.extension || 'TXT';
   return item.mediaType;
 }

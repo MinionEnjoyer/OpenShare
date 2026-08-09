@@ -15,7 +15,8 @@ remain in operator-controlled volumes.
 
 ## Features
 
-- Image, video, audio, PDF, text, archive, and 3D-model viewers
+- Image, video, audio, PDF, spreadsheet, text, archive, and 3D-model viewers
+- Private contacts with groups, search, vCard/CSV import, vCard export, and optional OpenChat links
 - Automatic thumbnails and stored audio waveforms
 - Nested folders with colors, emoji icons, covers, tree navigation, and bulk actions
 - Progressive owner-scoped search across folders and files
@@ -32,10 +33,10 @@ cd OpenShare
 cp .env.example .env
 # Configure OIDC, the public URL, storage, and trusted origins in .env.
 OPENSHARE_IMAGE=minionenjoyer/openshare \
-OPENSHARE_VERSION=0.2.35 \
+OPENSHARE_VERSION=0.2.36 \
 docker compose -f docker-compose.public.yml pull
 OPENSHARE_IMAGE=minionenjoyer/openshare \
-OPENSHARE_VERSION=0.2.35 \
+OPENSHARE_VERSION=0.2.36 \
 docker compose -f docker-compose.public.yml up -d
 ```
 
@@ -45,7 +46,7 @@ persist both the database and storage paths described in the configuration templ
 ## Image tags
 
 - `latest`: newest CI-verified `main` build
-- `0.2.35`: current stable release
+- `0.2.36`: current stable release
 - `sha-<commit>`: immutable build for a verified source commit
 
 Images are published for `linux/amd64` and `linux/arm64`. Docker Hub receives the exact digest

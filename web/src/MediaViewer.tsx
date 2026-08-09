@@ -139,11 +139,64 @@ function AudioSurface({ data }: { data: MediaViewerData }) {
   </div>;
 }
 
+type SpreadsheetPreview = {
+  sheetNames: string[];
+  activeSheet: string | null;
+  rows: Array<Array<string | number | boolean | null>>;
+  offset: number;
+  limit: number;
+  totalRows: number;
+  totalColumns: number;
+  columnsTruncated: boolean;
+};
+
+const columnLabel = (index: number) => {
+  let label = '';
+  for (let value = index + 1; value > 0; value = Math.floor((value - 1) / 26)) label = String.fromCharCode(65 + (value - 1) % 26) + label;
+  return label;
+};
+
+function SpreadsheetSurface({ data }: { data: MediaViewerData }) {
+  const [preview, setPreview] = useState<SpreadsheetPreview | null>(null);
+  const [sheet, setSheet] = useState('');
+  const [offset, setOffset] = useState(0);
+  const [error, setError] = useState('');
+  const pageSize = 100;
+  useEffect(() => {
+    if (!data.spreadsheetUrl) return;
+    const controller = new AbortController();
+    const params = new URLSearchParams({ offset: String(offset), limit: String(pageSize) });
+    if (sheet) params.set('sheet', sheet);
+    setPreview(null); setError('');
+    fetch(`${data.spreadsheetUrl}?${params}`, { signal: controller.signal })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.detail || `Preview failed (${response.status})`);
+        return body as SpreadsheetPreview;
+      })
+      .then((body) => {
+        setPreview({ ...body, sheetNames: body.sheetNames ?? [], rows: body.rows ?? [] });
+        if (!sheet && body.activeSheet) setSheet(body.activeSheet);
+      })
+      .catch((reason) => { if (reason.name !== 'AbortError') setError(reason instanceof Error ? reason.message : String(reason)); });
+    return () => controller.abort();
+  }, [data.spreadsheetUrl, offset, sheet]);
+  const shownColumns = Math.min(preview?.totalColumns ?? 0, 100);
+  return <div className="os-spreadsheet-surface">
+    {preview && <header className="os-sheet-toolbar"><div className="os-sheet-tabs" role="tablist" aria-label="Workbook sheets">{preview.sheetNames.map((name) => <button type="button" role="tab" aria-selected={preview.activeSheet === name} key={name} onClick={() => { setSheet(name); setOffset(0); }}>{name}</button>)}</div><span>{preview.totalRows.toLocaleString()} rows · {preview.totalColumns.toLocaleString()} columns{preview.columnsTruncated ? ' · showing first 100 columns' : ''}</span></header>}
+    {!preview && !error && <div className="os-viewer-status"><Spinner size="md" label="Loading spreadsheet" /><span>Reading workbook…</span></div>}
+    {error && <div className="os-viewer-error" role="alert"><strong>Could not preview this spreadsheet</strong><span>{error}</span><a href={data.rawUrl}>Download the original</a></div>}
+    {preview && <div className="os-sheet-grid-wrap"><table className="os-sheet-grid"><thead><tr><th className="os-sheet-corner" />{Array.from({ length: shownColumns }, (_, index) => <th key={index} scope="col">{columnLabel(index)}</th>)}</tr></thead><tbody>{preview.rows.map((row, rowIndex) => <tr key={offset + rowIndex}><th scope="row">{offset + rowIndex + 1}</th>{Array.from({ length: shownColumns }, (_, columnIndex) => <td key={columnIndex} title={row[columnIndex] == null ? '' : String(row[columnIndex])}>{row[columnIndex] == null ? '' : String(row[columnIndex])}</td>)}</tr>)}</tbody></table>{preview.totalRows === 0 && <div className="os-sheet-empty">This sheet is empty.</div>}</div>}
+    {preview && preview.totalRows > pageSize && <footer className="os-sheet-pager"><button type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - pageSize))}>Previous rows</button><span>{offset + 1}–{Math.min(offset + preview.rows.length, preview.totalRows)} of {preview.totalRows}</span><button type="button" disabled={offset + pageSize >= preview.totalRows} onClick={() => setOffset(offset + pageSize)}>Next rows</button></footer>}
+  </div>;
+}
+
 function MediaSurface({ data }: { data: MediaViewerData }) {
   if (data.mediaType === 'image') return <ImageSurface data={data} />;
   if (data.mediaType === 'video') return <video className="os-video-surface" controls preload="metadata" poster={data.thumbUrl ?? undefined} src={data.rawUrl}>Your browser cannot play this video.</video>;
   if (data.mediaType === 'audio') return <AudioSurface data={data} />;
   if (data.mediaType === 'pdf') return <object className="os-pdf-surface" data={data.rawUrl} type="application/pdf"><a href={data.rawUrl}>Open PDF</a></object>;
+  if (data.mediaType === 'spreadsheet') return <SpreadsheetSurface data={data} />;
   if (data.mediaType === 'text') return <div className="os-text-surface"><header>{data.textLanguage ?? 'text'}{data.textTruncated && <span>Preview truncated</span>}</header><pre><code>{data.textBody}</code></pre></div>;
   if (data.mediaType === 'model') return <div id="model-stage" className="os-model-surface" data-src={data.rawUrl} data-ext={data.modelExtension ?? ''} data-mtl={data.modelMaterial ?? undefined}><div className="os-viewer-status"><Spinner size="md" label="Loading 3D model" /><span>Loading {data.modelExtension?.toUpperCase()} model…</span></div></div>;
   return <div className="os-archive-surface"><span aria-hidden="true">▣</span><strong>{data.name}</strong><small>{data.sizeLabel} archive</small><a href={data.rawUrl} download={data.name}>Download to open</a></div>;

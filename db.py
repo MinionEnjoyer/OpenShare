@@ -1,4 +1,5 @@
 import aiosqlite
+import json
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -67,6 +68,46 @@ CREATE TABLE IF NOT EXISTS media_share_links (
 );
 CREATE INDEX IF NOT EXISTS idx_media_share_links_owner_created
 ON media_share_links (owner_sub, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS contact_groups (
+    id          TEXT PRIMARY KEY,
+    owner_sub   TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    color       TEXT NOT NULL DEFAULT '#3298ff',
+    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_groups_owner_name
+ON contact_groups (owner_sub, name COLLATE NOCASE);
+
+CREATE TABLE IF NOT EXISTS contacts (
+    id                   TEXT PRIMARY KEY,
+    owner_sub            TEXT NOT NULL,
+    display_name         TEXT NOT NULL,
+    given_name           TEXT NOT NULL DEFAULT '',
+    family_name          TEXT NOT NULL DEFAULT '',
+    company              TEXT NOT NULL DEFAULT '',
+    job_title            TEXT NOT NULL DEFAULT '',
+    emails               TEXT NOT NULL DEFAULT '[]',
+    phones               TEXT NOT NULL DEFAULT '[]',
+    addresses            TEXT NOT NULL DEFAULT '[]',
+    notes                TEXT NOT NULL DEFAULT '',
+    birthday             TEXT,
+    openchat_username    TEXT NOT NULL DEFAULT '',
+    openchat_friend_code TEXT NOT NULL DEFAULT '',
+    created_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_contacts_owner_name
+ON contacts (owner_sub, display_name COLLATE NOCASE);
+
+CREATE TABLE IF NOT EXISTS contact_group_members (
+    contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    group_id   TEXT NOT NULL REFERENCES contact_groups(id) ON DELETE CASCADE,
+    PRIMARY KEY (contact_id, group_id)
+);
+CREATE INDEX IF NOT EXISTS idx_contact_group_members_group
+ON contact_group_members (group_id, contact_id);
 
 CREATE TABLE IF NOT EXISTS mirror_events (
     id          TEXT PRIMARY KEY,
@@ -788,6 +829,152 @@ async def update_thumb_path(media_id: str, thumb_path: str | None):
     async with connect_db() as db:
         await db.execute("UPDATE media SET thumb_path=? WHERE id=?", (thumb_path, media_id))
         await db.commit()
+
+
+# ---------- contacts ----------
+
+def _decode_contact(row: dict) -> dict:
+    result = dict(row)
+    for field in ("emails", "phones", "addresses"):
+        try:
+            value = json.loads(result.get(field) or "[]")
+            result[field] = value if isinstance(value, list) else []
+        except (TypeError, json.JSONDecodeError):
+            result[field] = []
+    group_ids = result.pop("group_ids", "") or ""
+    result["group_ids"] = [value for value in group_ids.split(",") if value]
+    return result
+
+
+async def contact_list(owner_sub: str, query: str = "", group_id: str | None = None) -> list[dict]:
+    clauses = ["c.owner_sub=?"]
+    args: list = [owner_sub]
+    if query:
+        pattern = f"%{query}%"
+        clauses.append(
+            "(c.display_name LIKE ? COLLATE NOCASE OR c.given_name LIKE ? COLLATE NOCASE "
+            "OR c.family_name LIKE ? COLLATE NOCASE OR c.company LIKE ? COLLATE NOCASE "
+            "OR c.emails LIKE ? COLLATE NOCASE OR c.phones LIKE ? COLLATE NOCASE "
+            "OR c.notes LIKE ? COLLATE NOCASE OR c.openchat_username LIKE ? COLLATE NOCASE "
+            "OR c.openchat_friend_code LIKE ? COLLATE NOCASE)"
+        )
+        args.extend([pattern] * 9)
+    if group_id:
+        clauses.append(
+            "EXISTS (SELECT 1 FROM contact_group_members filter_members "
+            "WHERE filter_members.contact_id=c.id AND filter_members.group_id=?)"
+        )
+        args.append(group_id)
+    async with connect_db() as connection:
+        connection.row_factory = aiosqlite.Row
+        async with connection.execute(
+            "SELECT c.*, GROUP_CONCAT(m.group_id) AS group_ids FROM contacts c "
+            "LEFT JOIN contact_group_members m ON m.contact_id=c.id "
+            f"WHERE {' AND '.join(clauses)} GROUP BY c.id "
+            "ORDER BY c.display_name COLLATE NOCASE, c.id",
+            tuple(args),
+        ) as cursor:
+            return [_decode_contact(dict(row)) for row in await cursor.fetchall()]
+
+
+async def contact_get(contact_id: str, owner_sub: str) -> dict | None:
+    async with connect_db() as connection:
+        connection.row_factory = aiosqlite.Row
+        async with connection.execute(
+            "SELECT c.*, GROUP_CONCAT(m.group_id) AS group_ids FROM contacts c "
+            "LEFT JOIN contact_group_members m ON m.contact_id=c.id "
+            "WHERE c.id=? AND c.owner_sub=? GROUP BY c.id",
+            (contact_id, owner_sub),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return _decode_contact(dict(row)) if row else None
+
+
+async def contact_save(contact_id: str, owner_sub: str, values: dict, group_ids: list[str]) -> dict | None:
+    async with connect_db() as connection:
+        await connection.execute("BEGIN IMMEDIATE")
+        async with connection.execute(
+            "SELECT 1 FROM contacts WHERE id=? AND owner_sub=?", (contact_id, owner_sub)
+        ) as cursor:
+            exists = await cursor.fetchone() is not None
+        columns = (
+            "display_name", "given_name", "family_name", "company", "job_title", "emails",
+            "phones", "addresses", "notes", "birthday", "openchat_username", "openchat_friend_code",
+        )
+        serialized = dict(values)
+        for field in ("emails", "phones", "addresses"):
+            serialized[field] = json.dumps(serialized[field], separators=(",", ":"))
+        if exists:
+            assignments = ", ".join(f"{column}=?" for column in columns)
+            await connection.execute(
+                f"UPDATE contacts SET {assignments}, updated_at=CURRENT_TIMESTAMP "
+                "WHERE id=? AND owner_sub=?",
+                (*[serialized[column] for column in columns], contact_id, owner_sub),
+            )
+        else:
+            await connection.execute(
+                f"INSERT INTO contacts (id, owner_sub, {', '.join(columns)}) "
+                f"VALUES ({', '.join(['?'] * (len(columns) + 2))})",
+                (contact_id, owner_sub, *(serialized[column] for column in columns)),
+            )
+        await connection.execute("DELETE FROM contact_group_members WHERE contact_id=?", (contact_id,))
+        if group_ids:
+            placeholders = ",".join("?" for _ in group_ids)
+            async with connection.execute(
+                f"SELECT id FROM contact_groups WHERE owner_sub=? AND id IN ({placeholders})",
+                (owner_sub, *group_ids),
+            ) as cursor:
+                valid_group_ids = [row[0] for row in await cursor.fetchall()]
+            await connection.executemany(
+                "INSERT INTO contact_group_members (contact_id, group_id) VALUES (?, ?)",
+                [(contact_id, group_id) for group_id in valid_group_ids],
+            )
+        await connection.commit()
+    return await contact_get(contact_id, owner_sub)
+
+
+async def contact_delete(contact_id: str, owner_sub: str) -> bool:
+    async with connect_db() as connection:
+        cursor = await connection.execute(
+            "DELETE FROM contacts WHERE id=? AND owner_sub=?", (contact_id, owner_sub)
+        )
+        await connection.commit()
+        return cursor.rowcount == 1
+
+
+async def contact_group_list(owner_sub: str) -> list[dict]:
+    async with connect_db() as connection:
+        connection.row_factory = aiosqlite.Row
+        async with connection.execute(
+            "SELECT g.*, COUNT(m.contact_id) AS contact_count FROM contact_groups g "
+            "LEFT JOIN contact_group_members m ON m.group_id=g.id WHERE g.owner_sub=? "
+            "GROUP BY g.id ORDER BY g.name COLLATE NOCASE",
+            (owner_sub,),
+        ) as cursor:
+            return [dict(row) for row in await cursor.fetchall()]
+
+
+async def contact_group_create(group_id: str, owner_sub: str, name: str, color: str) -> dict | None:
+    async with connect_db() as connection:
+        try:
+            await connection.execute(
+                "INSERT INTO contact_groups (id, owner_sub, name, color) VALUES (?, ?, ?, ?)",
+                (group_id, owner_sub, name, color),
+            )
+            await connection.commit()
+        except aiosqlite.IntegrityError:
+            return None
+    groups = await contact_group_list(owner_sub)
+    return next((group for group in groups if group["id"] == group_id), None)
+
+
+async def contact_group_delete(group_id: str, owner_sub: str) -> bool:
+    async with connect_db() as connection:
+        cursor = await connection.execute(
+            "DELETE FROM contact_groups WHERE id=? AND owner_sub=?", (group_id, owner_sub)
+        )
+        await connection.commit()
+        return cursor.rowcount == 1
 
 
 # ---------- trusted mirror cluster ----------

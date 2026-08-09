@@ -9,7 +9,7 @@ const viewerData: MediaViewerData = {
   id: 'image-1', name: 'launch.png', mediaType: 'image', rawUrl: '/raw/image-1',
   thumbUrl: '/thumb/image-1', ownerUsername: 'owner', sizeLabel: '32 KB', appVersion: '0.2.35',
   canManage: true, backUrl: '/', deleteUrl: '/delete/image-1', shareUrl: '/media/image-1/shares',
-  waveformUrl: null, textBody: null, textLanguage: null, textTruncated: false,
+  waveformUrl: null, spreadsheetUrl: null, textBody: null, textLanguage: null, textTruncated: false,
   modelExtension: null, modelMaterial: null,
   navigation: {
     position: 2, total: 3,
@@ -63,6 +63,18 @@ describe('React application surfaces', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Share' }));
     expect(await screen.findByText('Share link created and saved')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith('/media/image-1/shares', { method: 'POST', credentials: 'same-origin' });
+  });
+
+  it('renders a paged multi-sheet spreadsheet inside the common viewer shell', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
+      sheetNames: ['Overview', 'Costs'], activeSheet: 'Overview', rows: [['Name', 'Amount'], ['Hosting', 42]],
+      offset: 0, limit: 100, totalRows: 2, totalColumns: 2, columnsTruncated: false,
+    }), { status: 200 }));
+    render(<MediaViewer data={{ ...viewerData, id: 'sheet-1', name: 'budget.xlsx', mediaType: 'spreadsheet', rawUrl: '/raw/sheet-1', spreadsheetUrl: '/api/spreadsheets/sheet-1' }} />);
+
+    expect(await screen.findByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('cell', { name: 'Hosting' })).toBeInTheDocument();
+    expect(screen.getByText('42')).toBeInTheDocument();
   });
 
   it('uses unmodified arrow keys to browse neighboring files', () => {

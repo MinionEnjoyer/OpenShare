@@ -40,8 +40,9 @@ ports while continuing to reject missing and cross-origin mutation requests. Fol
 includes arbitrary six-digit RGB colors, the searchable emoji catalog, owner-only folder updates,
 icon/dynamic/custom image previews, safe post-edit return targets, the compact directory tree,
 persisted theme/density/motion preferences, owner-scoped progressive search matches, recorded
-folder and media shares, grouped duplicate OpenChat companion assets, React upload and selection
-behavior, unified viewer recovery, and centered version footers.
+folder and media shares, grouped duplicate OpenChat companion assets, owner-isolated contact CRUD,
+groups, search, vCard import/export, spreadsheet classification and bounded paging, React upload and
+selection behavior, unified viewer recovery, and centered version footers.
 
 ## Test groups
 
@@ -49,8 +50,8 @@ behavior, unified viewer recovery, and centered version footers.
 - `pytest -m integration` runs the ASGI/SQLite/storage harness.
 - `pytest --cov` enforces the branch-coverage threshold configured in `pyproject.toml`.
 - `make test-web` runs the React interaction suite for the structured library, progressive search,
-  explorer, folder dialogs, previews, viewers, media sharing, upload ordering, companion grouping,
-  and settings persistence.
+  explorer, folder dialogs, previews, viewers, spreadsheet sheet/paging controls, contact search and
+  OpenChat actions, media sharing, upload ordering, companion grouping, and settings persistence.
 - `make test-ops` syntax-checks the CI-gated systemd deployment scaffold.
 
 Media processors are faked by default so a malformed placeholder video or PDF is sufficient for

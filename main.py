@@ -1,4 +1,5 @@
 import asyncio
+import csv
 import hashlib
 import json
 import mimetypes
@@ -13,7 +14,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, Depends, Body
-from fastapi.responses import RedirectResponse, FileResponse, JSONResponse, HTMLResponse
+from fastapi.responses import RedirectResponse, FileResponse, JSONResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,9 +22,11 @@ from starlette.middleware.sessions import SessionMiddleware
 from authlib.integrations.base_client import OAuthError
 
 import auth
+import contacts
 import db
 import thumbs
 import mirror
+import spreadsheets
 
 STORAGE_ROOT = Path(os.environ.get("STORAGE_ROOT", "/srv/gallery"))
 FILES_DIR = STORAGE_ROOT / "files"
@@ -40,6 +43,7 @@ NATIVE_ORIGINS = ["tauri://localhost", "http://tauri.localhost", "https://tauri.
 # on a user's behalf). When set, a request bearing this key + an X-Share-User-Sub header
 # is treated as that user. Empty = feature disabled (session auth only).
 SHARE_API_KEY = os.environ.get("SHARE_API_KEY", "").strip()
+OPENCHAT_PUBLIC_URL = os.environ.get("OPENCHAT_PUBLIC_URL", "").rstrip("/")
 
 
 def optional_positive_int(name: str) -> int | None:
@@ -101,11 +105,13 @@ MODEL_EXTS = {".stl", ".obj", ".fbx", ".3mf", ".step", ".stp"}
 # File types that may legitimately accompany a 3D model in a bundle (materials + textures)
 MODEL_AUX_EXTS = {".mtl", ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".tif", ".tiff", ".dds"}
 
+SPREADSHEET_EXTS = spreadsheets.SPREADSHEET_EXTS
+
 # Text / source code files
 TEXT_EXTS = {
     ".txt", ".text", ".md", ".markdown", ".rst",
     ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
-    ".csv", ".tsv", ".xml", ".html", ".htm", ".css", ".scss", ".sass",
+    ".xml", ".html", ".htm", ".css", ".scss", ".sass",
     ".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd",
     ".py", ".pyi", ".pyw", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
     ".c", ".h", ".cpp", ".hpp", ".cc", ".hh", ".cxx", ".hxx",
@@ -134,6 +140,8 @@ def classify_upload(filename: str, content_type: str) -> tuple[str | None, str]:
     # codec-annotated uploads (common from MediaRecorder) still match the type sets.
     mime = (content_type or "").split(";")[0].strip().lower()
     ext = Path(filename or "").suffix.lower()
+    if spreadsheets.is_spreadsheet(filename, mime):
+        return "spreadsheet", mime or mimetypes.types_map.get(ext) or "application/octet-stream"
     if mime in IMAGE_MIMES:
         return "image", mime
     if mime in VIDEO_MIMES:
@@ -171,7 +179,7 @@ def classify_upload(filename: str, content_type: str) -> tuple[str | None, str]:
 ID_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 _VIEW_PREFIXES = {
     "image": "i", "video": "v", "pdf": "d", "model": "m",
-    "text": "t", "archive": "a", "audio": "au",
+    "text": "t", "archive": "a", "audio": "au", "spreadsheet": "ss",
 }
 
 
@@ -459,6 +467,146 @@ async def index(request: Request):
 async def view_folder(folder_id: str, request: Request, user: dict = Depends(require_user)):
     folder = await _owner_folder(folder_id, user["sub"])
     return await _render_owner_view(request, user, folder)
+
+
+# ---------- Contacts ----------
+
+def _contact_response(contact: dict) -> dict:
+    return {
+        "id": contact["id"],
+        "displayName": contact["display_name"],
+        "givenName": contact["given_name"],
+        "familyName": contact["family_name"],
+        "company": contact["company"],
+        "jobTitle": contact["job_title"],
+        "emails": contact["emails"],
+        "phones": contact["phones"],
+        "addresses": contact["addresses"],
+        "notes": contact["notes"],
+        "birthday": contact["birthday"],
+        "openChatUsername": contact["openchat_username"],
+        "openChatFriendCode": contact["openchat_friend_code"],
+        "groupIds": contact["group_ids"],
+        "createdAt": contact["created_at"],
+        "updatedAt": contact["updated_at"],
+    }
+
+
+def _contact_values(payload: dict) -> tuple[dict, list[str]]:
+    try:
+        values = contacts.normalize_contact({
+            "display_name": payload.get("displayName"),
+            "given_name": payload.get("givenName"),
+            "family_name": payload.get("familyName"),
+            "company": payload.get("company"),
+            "job_title": payload.get("jobTitle"),
+            "emails": payload.get("emails"),
+            "phones": payload.get("phones"),
+            "addresses": payload.get("addresses"),
+            "notes": payload.get("notes"),
+            "birthday": payload.get("birthday"),
+            "openchat_username": payload.get("openChatUsername"),
+            "openchat_friend_code": payload.get("openChatFriendCode"),
+        })
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc)) from exc
+    group_ids = payload.get("groupIds")
+    if not isinstance(group_ids, list):
+        group_ids = []
+    return values, [str(group_id)[:64] for group_id in group_ids[:50]]
+
+
+@app.get("/contacts", response_class=HTMLResponse)
+async def contact_manager(request: Request, user: dict = Depends(require_user)):
+    return templates.TemplateResponse(request=request, name="contacts.html", context={
+        "user": user,
+        "user_storage": await _storage_for(user),
+        "contact_data": {
+            "appVersion": APP_VERSION,
+            "openChatUrl": OPENCHAT_PUBLIC_URL or None,
+        },
+    })
+
+
+@app.get("/api/contacts")
+async def list_contacts(q: str = "", group_id: str = "", user: dict = Depends(require_user)):
+    rows = await db.contact_list(user["sub"], q.strip()[:200], group_id or None)
+    return {"contacts": [_contact_response(row) for row in rows]}
+
+
+@app.post("/api/contacts", status_code=201)
+async def create_contact(payload: dict = Body(...), user: dict = Depends(require_user)):
+    values, group_ids = _contact_values(payload)
+    row = await db.contact_save(new_id(), user["sub"], values, group_ids)
+    return _contact_response(row)
+
+
+@app.put("/api/contacts/{contact_id}")
+async def update_contact(contact_id: str, payload: dict = Body(...), user: dict = Depends(require_user)):
+    if not await db.contact_get(contact_id, user["sub"]):
+        raise HTTPException(404, detail="contact not found")
+    values, group_ids = _contact_values(payload)
+    row = await db.contact_save(contact_id, user["sub"], values, group_ids)
+    return _contact_response(row)
+
+
+@app.delete("/api/contacts/{contact_id}", status_code=204)
+async def delete_contact(contact_id: str, user: dict = Depends(require_user)):
+    if not await db.contact_delete(contact_id, user["sub"]):
+        raise HTTPException(404, detail="contact not found")
+
+
+@app.get("/api/contact-groups")
+async def list_contact_groups(user: dict = Depends(require_user)):
+    return {"groups": await db.contact_group_list(user["sub"])}
+
+
+@app.post("/api/contact-groups", status_code=201)
+async def create_contact_group(payload: dict = Body(...), user: dict = Depends(require_user)):
+    name = str(payload.get("name") or "").strip()[:100]
+    color = str(payload.get("color") or "#3298ff").strip()
+    if not name:
+        raise HTTPException(400, detail="group name is required")
+    if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+        raise HTTPException(400, detail="group color must be a six-digit hex color")
+    group = await db.contact_group_create(new_id(16), user["sub"], name, color.lower())
+    if not group:
+        raise HTTPException(409, detail="a group with that name already exists")
+    return group
+
+
+@app.delete("/api/contact-groups/{group_id}", status_code=204)
+async def delete_contact_group(group_id: str, user: dict = Depends(require_user)):
+    if not await db.contact_group_delete(group_id, user["sub"]):
+        raise HTTPException(404, detail="contact group not found")
+
+
+@app.post("/api/contacts/import")
+async def import_contacts(file: UploadFile = File(...), user: dict = Depends(require_user)):
+    content = await file.read()
+    if UPLOAD_MAX_BYTES and len(content) > UPLOAD_MAX_BYTES:
+        raise HTTPException(413, detail="contact import exceeds the configured upload limit")
+    extension = Path(file.filename or "").suffix.lower()
+    try:
+        imported = contacts.parse_vcards(content) if extension in {".vcf", ".vcard"} else contacts.parse_contact_csv(content)
+    except (ValueError, csv.Error) as exc:
+        raise HTTPException(400, detail=f"could not parse contact file: {exc}") from exc
+    saved = []
+    for values in imported[:5000]:
+        row = await db.contact_save(new_id(), user["sub"], values, [])
+        if row:
+            saved.append(_contact_response(row))
+    return {"imported": len(saved), "contacts": saved}
+
+
+@app.get("/api/contacts/export.vcf")
+async def export_contacts(user: dict = Depends(require_user)):
+    content = contacts.export_vcards(await db.contact_list(user["sub"]))
+    return Response(
+        content=content,
+        media_type="text/vcard; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="openshare-contacts.vcf"'},
+    )
 
 
 # ---------- OIDC ----------
@@ -1197,6 +1345,7 @@ async def _viewer_response(
         "deleteUrl": f"/delete/{item['id']}",
         "shareUrl": f"/media/{item['id']}/shares",
         "waveformUrl": f"/waveform/{item['id']}" if item["media_type"] == "audio" else None,
+        "spreadsheetUrl": f"/api/spreadsheets/{item['id']}" if item["media_type"] == "spreadsheet" else None,
         "textBody": text_body,
         "textLanguage": text_language,
         "textTruncated": text_truncated,
@@ -1298,6 +1447,30 @@ async def view_text(request: Request, media_id: str):
         text_language=lang,
         text_truncated=truncated,
     )
+
+
+@app.get("/ss/{media_id}", response_class=HTMLResponse)
+async def view_spreadsheet(request: Request, media_id: str):
+    return await _view(request, media_id, "spreadsheet")
+
+
+@app.get("/api/spreadsheets/{media_id}")
+async def spreadsheet_preview(
+    media_id: str,
+    sheet: str = "",
+    offset: int = 0,
+    limit: int = 100,
+):
+    item = await db.get_media(media_id)
+    if not item or item["media_type"] != "spreadsheet":
+        raise HTTPException(404, detail="spreadsheet not found")
+    path = Path(item["storage_path"])
+    if not path.exists():
+        raise HTTPException(404, detail="spreadsheet file is unavailable")
+    try:
+        return await asyncio.to_thread(spreadsheets.preview, path, sheet or None, offset, limit)
+    except (ValueError, OSError, RuntimeError) as exc:
+        raise HTTPException(422, detail=f"could not preview spreadsheet: {exc}") from exc
 
 
 @app.get("/m/{media_id}", response_class=HTMLResponse)

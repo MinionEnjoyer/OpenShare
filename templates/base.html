@@ -16,6 +16,12 @@
 <body>
 <nav class="app-nav">
   <a href="/" class="brand"><img src="/static/logo.png" alt="" width="24" height="24" style="vertical-align:-6px;margin-right:8px">OpenShare</a>
+  {% if user %}
+    <div class="app-sections" aria-label="OpenShare sections">
+      <a href="/">Files</a>
+      <a href="/contacts">Contacts</a>
+    </div>
+  {% endif %}
   <div class="spacer"></div>
   {% if user %}
     <span class="user">{{ user.username }}</span>

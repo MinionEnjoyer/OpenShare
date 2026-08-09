@@ -22,7 +22,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY VERSION main.py auth.py db.py mirror.py thumbs.py ./
+COPY VERSION main.py auth.py contacts.py db.py mirror.py spreadsheets.py thumbs.py ./
 COPY templates ./templates
 COPY static ./static
 COPY --from=web-build /src/static/react ./static/react

@@ -32,8 +32,11 @@ If OpenShare is useful to you, project support is available through
 
 ## Features
 
-- **Unified React viewers** for images, video, audio waveforms, PDFs, text/code, archives, and
-  rendered 3D models. Every viewer shares the same responsive modal shell, loading and recovery
+- **Unified React viewers** for images, video, audio waveforms, PDFs, spreadsheets, text/code,
+  archives, and rendered 3D models. Spreadsheet previews support Excel (`.xlsx`, `.xlsm`, `.xls`,
+  `.xlsb`), OpenDocument (`.ods`), CSV, and TSV workbooks with sheet tabs, bounded row paging,
+  sticky headings, and direct access to the original file. Every viewer shares the same responsive
+  modal shell, loading and recovery
   states, owner actions, centered version footer, and recorded sharing workflow. Images add fit,
   actual-size, zoom, and pan controls.
 - **Automatic thumbnails** for images, video frames, PDFs, and 3D models; audio uploads get a
@@ -46,10 +49,13 @@ If OpenShare is useful to you, project support is available through
   size.
 - **Recorded share links** — create, copy, review, and revoke links from “My shared links,” or add
   an existing owned `/f/<id>` folder link without changing the URL already shared. Stable
-  `/(i|v|au|d|t|m|a)/<id>` viewer URLs also expose `/raw` and `/thumb` for direct bytes. Media
+  `/(i|v|au|d|t|m|a|ss)/<id>` viewer URLs also expose `/raw` and `/thumb` for direct bytes. Media
   viewers create revocable `/ms/<id>` links recorded beside folder shares.
 - **Progressive library search** that surfaces matching folders and files as the user types, with
   direct navigation to each result and a clear path to the complete owner-scoped result set.
+- **Private contact manager** with owner-scoped search, color-coded groups, rich contact details,
+  notes, birthdays, vCard/CSV import, vCard export, and optional OpenChat username or 8-digit friend
+  code links. OpenShare never sends unrelated contact fields to OpenChat.
 - **Structured library workspace** with distinct upload, folder, and unsorted-file areas, balanced
   card spacing, responsive controls, and consistent empty, loading, and error states.
 - **Companion collections** — when OpenChat is configured, its attachments, stickers, avatars,
@@ -65,12 +71,13 @@ If OpenShare is useful to you, project support is available through
 
 ## Tech
 
-FastAPI (Python 3.12) · React 18 / TypeScript · SQLite · Authlib (OIDC) · Pillow / ffmpeg /
-poppler / pyrender for thumbnails. React owns the signed-in library, progressive search, public
+FastAPI (Python 3.12) · React 18 / TypeScript · SQLite · Authlib (OIDC) · Calamine spreadsheet
+parsing · Pillow / ffmpeg / poppler / pyrender for thumbnails. React owns the signed-in library,
+progressive search, contacts, public
 folder presentation, and every media viewer. FastAPI supplies thin metadata shells plus
 authentication, storage, and stable resource URLs. Ships as one image.
 
-The current OpenShare release is **0.2.35**. The canonical value lives in [`VERSION`](VERSION), is
+The current OpenShare release is **0.2.36**. The canonical value lives in [`VERSION`](VERSION), is
 shown in the web footer, and is returned by `GET /health` so operators can verify the active build.
 
 ## Quick start
@@ -96,7 +103,7 @@ docker compose -f docker-compose.public.yml up -d
 ```
 
 The Compose file defaults to `ghcr.io/minionenjoyer/openshare:latest`. Set
-`OPENSHARE_VERSION=0.2.35` to pin this release, or use the published `sha-<commit>` tag for an
+`OPENSHARE_VERSION=0.2.36` to pin this release, or use the published `sha-<commit>` tag for an
 immutable deployment. Set `OPENSHARE_IMAGE=<namespace>/openshare` to pull the Docker Hub mirror.
 Source builds remain available through the standard `docker-compose.yml`.
 
@@ -120,6 +127,7 @@ Everything is environment-driven via `.env` (the one local, gitignored config fi
 | `PUBLIC_URL` | Public base URL (used for OIDC redirect + share links) |
 | `ALLOWED_ORIGINS` | Comma-separated trusted application origins (e.g. your OpenChat URL) |
 | `SHARE_API_KEY` | Shared secret scoped to OpenChat upload and waveform requests; other owner operations always require an OpenShare session |
+| `OPENCHAT_PUBLIC_URL` | Optional companion URL used by contact cards to open OpenChat with a linked username or friend code |
 | `FEDERATION_ENABLED` | Opt in to private, signed attachment replication; disabled by default |
 | `FEDERATION_NODE_ID` / `FEDERATION_SHARED_SECRET` / `FEDERATION_PEERS` | Unique node identity, 32+ character cluster key, and explicit JSON list of HTTPS OpenShare peers |
 | `STORAGE_ROOT` | In-container path for files/thumbnails (matches the compose mount) |
@@ -140,7 +148,8 @@ The pair is designed to run together:
 
 1. Deploy OpenShare and note its `PUBLIC_URL` (e.g. `https://share.example.com`).
 2. In OpenShare's `.env`, add your OpenChat origin to `ALLOWED_ORIGINS`
-   (e.g. `https://chat.example.com`) and set `SHARE_API_KEY` to a random secret.
+   (e.g. `https://chat.example.com`), set `OPENCHAT_PUBLIC_URL` to that address, and set
+   `SHARE_API_KEY` to a random secret.
 3. In OpenChat's `.env`, set `SHARE_BASE_URL` to OpenShare's `PUBLIC_URL` and `SHARE_API_KEY`
    to the **same** secret from step 2.
 
@@ -157,6 +166,11 @@ remain in the personal library. Upgrading from an older release migrates assets 
 top-level `Chat` folder into this collection and removes that folder when it is empty. Identical
 historical OpenChat uploads are grouped by content hash in the companion view while every original
 asset ID remains valid for existing messages.
+
+Contacts can optionally store an OpenChat username and 8-digit friend code. When
+`OPENCHAT_PUBLIC_URL` is configured, the contact detail view offers a deliberate “Open OpenChat”
+action and a separate copy-code action. The integration does not upload addresses, phone numbers,
+notes, or other private contact data.
 
 ## Storage layout
 

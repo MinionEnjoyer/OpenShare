@@ -69,4 +69,9 @@ session, public URL, origin, storage, and optional integration settings through 
 - [Public Compose stack](https://github.com/MinionEnjoyer/OpenShare/blob/main/docker-compose.public.yml)
 - [Source and issue tracker](https://github.com/MinionEnjoyer/OpenShare)
 
+## Support the project
+
+If OpenShare is useful to you, support its continued development through
+[Buy Me a Coffee](https://buymeacoffee.com/minionenjoyer).
+
 OpenShare is licensed under the MIT License.

@@ -561,7 +561,7 @@ export function FolderWorkspace({ data }: { data: FolderWorkspaceData }) {
         <button className="danger" type="button" onClick={deleteCurrent}>Delete</button>
       </div>}
 
-      {subfolders.length > 0 && <div className="os-folder-grid">
+      {(subfolders.length > 0 || currentFolder) && <div className="os-folder-grid">
         {subfolders.map((folder) => <article className="os-folder-card" key={folder.id} style={{ '--folder-color': folder.color } as CSSProperties}>
           <a className="os-folder-tile droptarget" href={`/folder/${encodeURIComponent(folder.id)}`} data-folder-id={folder.id}>
             <FolderVisual folder={folder} className="os-folder-card-icon" />

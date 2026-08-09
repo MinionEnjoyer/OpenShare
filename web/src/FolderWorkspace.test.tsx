@@ -36,6 +36,23 @@ describe('React folder workspace', () => {
     expect(screen.queryByRole('button', { name: 'Edit Drafts' })).not.toBeInTheDocument();
   });
 
+  it('keeps the parent-folder route available inside an empty folder', () => {
+    const { rerender } = render(<FolderWorkspace data={{
+      ...data,
+      currentFolder: drafts,
+      subfolders: [],
+    }} />);
+
+    expect(screen.getByRole('link', { name: /Up one level/ })).toHaveAttribute('href', '/folder/design');
+    expect(screen.getByText('No folders in this area')).toBeInTheDocument();
+
+    rerender(<FolderWorkspace data={{ ...data, currentFolder: design, subfolders: [] }} />);
+    expect(screen.getByRole('link', { name: /Up one level/ })).toHaveAttribute('href', '/');
+
+    rerender(<FolderWorkspace data={{ ...data, currentFolder: null, subfolders: [] }} />);
+    expect(screen.queryByRole('link', { name: /Up one level/ })).not.toBeInTheDocument();
+  });
+
   it('opens a compact Linux-style folder tree in the shared centered surface', () => {
     render(<FolderWorkspace data={data} />);
     fireEvent.click(screen.getByRole('button', { name: /Browse library/ }));

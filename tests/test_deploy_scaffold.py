@@ -35,8 +35,9 @@ def test_react_chunks_use_the_fastapi_static_mount():
     base_template = BASE_TEMPLATE.read_text(encoding="utf-8")
 
     assert "base: '/static/react/'" in vite_config
-    assert 'src="/static/react/assets/openshare.js"' in base_template
-    assert 'href="/static/react/assets/openshare.css"' in base_template
+    assert 'src="/static/react/assets/openshare.js?v={{ app_version }}"' in base_template
+    assert 'href="/static/react/assets/openshare.css?v={{ app_version }}"' in base_template
+    assert 'href="/static/style.css?v={{ app_version }}"' in base_template
 
 
 def test_public_container_release_is_ci_gated_and_multi_arch():

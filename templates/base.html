@@ -8,10 +8,10 @@
 <script>(function(){var p=localStorage.getItem('openshare-theme')||'system';var d=p==='dark'||(p==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light';document.documentElement.dataset.themePreference=p;try{var s=JSON.parse(localStorage.getItem('openshare-preferences')||'{}');document.documentElement.dataset.folderDensity=s.folderDensity==='compact'?'compact':'comfortable';document.documentElement.dataset.motion=s.motion==='reduced'?'reduced':'system'}catch(e){document.documentElement.dataset.folderDensity='comfortable';document.documentElement.dataset.motion='system'}})()</script>
 {% block meta %}{% endblock %}
 <link rel="icon" type="image/png" href="/static/favicon.png">
-<link rel="stylesheet" href="/static/style.css">
-<link rel="stylesheet" href="/static/react/assets/openshare.css">
+<link rel="stylesheet" href="/static/style.css?v={{ app_version }}">
+<link rel="stylesheet" href="/static/react/assets/openshare.css?v={{ app_version }}">
 {% block head %}{% endblock %}
-<script type="module" src="/static/react/assets/openshare.js"></script>
+<script type="module" src="/static/react/assets/openshare.js?v={{ app_version }}"></script>
 </head>
 <body>
 <nav class="app-nav">

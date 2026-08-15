@@ -82,7 +82,7 @@ progressive search, contacts, public
 folder presentation, and every media viewer. FastAPI supplies thin metadata shells plus
 authentication, storage, and stable resource URLs. Ships as one image.
 
-The current OpenShare release is **0.2.38**. The canonical value lives in [`VERSION`](VERSION), is
+The current OpenShare release is **0.2.39**. The canonical value lives in [`VERSION`](VERSION), is
 shown in the web footer, and is returned by `GET /health` so operators can verify the active build.
 
 ## Quick start
@@ -111,7 +111,7 @@ docker compose -f docker-compose.public.yml up -d
 ```
 
 The Compose file defaults to `ghcr.io/minionenjoyer/openshare:latest`. Set
-`OPENSHARE_VERSION=0.2.38` to pin this release, or use the published `sha-<commit>` tag for an
+`OPENSHARE_VERSION=0.2.39` to pin this release, or use the published `sha-<commit>` tag for an
 immutable deployment. Set `OPENSHARE_IMAGE=<namespace>/openshare` to pull the Docker Hub mirror.
 Source builds remain available through the standard `docker-compose.yml`.
 

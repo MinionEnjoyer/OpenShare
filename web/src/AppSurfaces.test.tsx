@@ -95,6 +95,7 @@ describe('React application surfaces', () => {
     expect(folder.compareDocumentPosition(file) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Folders' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Unsorted files' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Paste text/ })).toBeVisible();
     expect(screen.getByText('Files that have not been organized into a folder yet.')).toBeInTheDocument();
     expect(screen.getByLabelText('Library summary')).toHaveTextContent('1 folder');
     expect(screen.getByLabelText('Library summary')).toHaveTextContent('1 unsorted');
@@ -127,7 +128,7 @@ describe('React application surfaces', () => {
     render(<LibraryApp data={libraryData} />);
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Upload destination' }), { target: { value: 'design' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Quick paste' }));
+    fireEvent.click(screen.getByRole('button', { name: /Paste text/ }));
     expect(screen.getByRole('dialog', { name: 'Share clipboard text' })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('File name'), { target: { value: 'release-notes' } });
     fireEvent.change(screen.getByLabelText('Text'), { target: { value: 'Large clipboard text\nwith Unicode: ✓' } });
@@ -156,7 +157,7 @@ describe('React application surfaces', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch');
     fetchMock.mockClear();
     render(<LibraryApp data={libraryData} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Quick paste' }));
+    fireEvent.click(screen.getByRole('button', { name: /Paste text/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Save and copy link' }));
     expect(screen.getByRole('alert')).toHaveTextContent('Paste some text before saving.');
     expect(fetchMock).not.toHaveBeenCalled();

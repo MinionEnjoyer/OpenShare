@@ -234,6 +234,11 @@ export function LibraryApp({ data }: { data: LibraryData }) {
   const fileSectionDescription = data.currentFolder
     ? `Files stored directly in ${data.currentFolder.name}.`
     : 'Files that have not been organized into a folder yet.';
+  const openPaste = () => {
+    setPasteError('');
+    setPasteShareUrl('');
+    setPasteOpen(true);
+  };
 
   return <div className="os-library-shell">
     <header className="os-library-context">
@@ -255,8 +260,14 @@ export function LibraryApp({ data }: { data: LibraryData }) {
 
     <section className="os-work-area os-upload-area" aria-labelledby="os-upload-title">
       <header className="os-area-heading">
-        <div><span className="eyebrow">Add content</span><h2 id="os-upload-title">Upload files</h2><p>Drop files into the destination below or choose them from this device.</p></div>
-        <span className="os-area-count">Destination: {uploadDestinationName}</span>
+        <div><span className="eyebrow">Add content</span><h2 id="os-upload-title">Add files or text</h2><p>Upload files or turn a large clipboard entry into a shareable text file.</p></div>
+        <div className="os-area-heading-actions">
+          <button className="os-paste-launch" type="button" disabled={uploading} onClick={openPaste}>
+            <span className="os-paste-launch-icon" aria-hidden="true">¶</span>
+            <span><strong>Paste text</strong><small>Open text editor</small></span>
+          </button>
+          <span className="os-area-count">Destination: {uploadDestinationName}</span>
+        </div>
       </header>
       <div
         className={`upload-zone ${dragging ? 'dragover' : ''} ${uploading ? 'busy' : ''}`}
@@ -267,7 +278,7 @@ export function LibraryApp({ data }: { data: LibraryData }) {
       >
         <div className="upload-main">
           <div className="upload-icon" aria-hidden="true"><span>↑</span></div>
-          <div className="upload-prompt"><strong>Drop files here</strong><span className="muted">or</span><label className="btn primary"><input ref={inputRef} type="file" multiple hidden accept={uploadAccept} disabled={uploading} onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void upload(event.target.files); }} />Choose files</label><button className="btn" type="button" disabled={uploading} onClick={() => { setPasteError(''); setPasteShareUrl(''); setPasteOpen(true); }}>Quick paste</button></div>
+          <div className="upload-prompt"><strong>Drop files here</strong><span className="muted">or</span><label className="btn primary"><input ref={inputRef} type="file" multiple hidden accept={uploadAccept} disabled={uploading} onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void upload(event.target.files); }} />Choose files</label></div>
           <label className="os-upload-destination"><span>Save to</span><select aria-label="Upload destination" value={uploadFolderId} disabled={uploading} onChange={(event) => setUploadFolderId(event.target.value)}><option value="">Unsorted</option>{uploadDestinations.map((folder) => <option value={folder.id} key={folder.id}>{folder.label}</option>)}</select></label>
         </div>
         {progress && <div className="progress muted" role="status"><Spinner size="sm" label="Uploading files" /> {progress}</div>}

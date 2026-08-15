@@ -1,4 +1,6 @@
-FROM node:22-alpine AS web-build
+# The Vite output is architecture-neutral. Build it on the runner's native
+# platform so an arm64 image does not run npm under QEMU.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS web-build
 
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./

@@ -28,6 +28,7 @@ def test_runtime_image_contains_every_local_application_module():
 
     for module in ("main.py", "auth.py", "db.py", "mirror.py", "thumbs.py"):
         assert module in source, f"Docker runtime image does not copy {module}"
+    assert "FROM --platform=$BUILDPLATFORM node:22-alpine AS web-build" in source
 
 
 def test_react_chunks_use_the_fastapi_static_mount():
@@ -45,6 +46,7 @@ def test_public_container_release_is_ci_gated_and_multi_arch():
     compose = PUBLIC_COMPOSE.read_text(encoding="utf-8")
 
     assert "workflow_run:" in workflow
+    assert "timeout-minutes: 20" in workflow
     assert "github.event.workflow_run.conclusion == 'success'" in workflow
     assert "github.event.workflow_run.head_branch == 'main'" in workflow
     assert "ref: ${{ github.event.workflow_run.head_sha }}" in workflow

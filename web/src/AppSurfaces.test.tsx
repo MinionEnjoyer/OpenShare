@@ -106,7 +106,7 @@ describe('React application surfaces', () => {
     fetchMock.mockClear();
     const { container } = render(<LibraryApp data={libraryData} />);
     fireEvent.change(screen.getByRole('combobox', { name: 'Upload destination' }), { target: { value: 'design' } });
-    expect(screen.getByText('Destination: Design')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Upload destination' })).toHaveValue('design');
     fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [new File(['sample'], 'sample.txt', { type: 'text/plain' })] } });
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const request = fetchMock.mock.calls.find(([url]) => url === '/upload')?.[1] as RequestInit;
@@ -116,7 +116,23 @@ describe('React application surfaces', () => {
   it('defaults uploads to Unsorted even while viewing a folder', () => {
     render(<LibraryApp data={{ ...libraryData, currentFolder: libraryData.allFolders[0], breadcrumb: [{ id: 'design', name: 'Design' }] }} />);
     expect(screen.getByRole('combobox', { name: 'Upload destination' })).toHaveValue('');
-    expect(screen.getByText('Destination: Unsorted')).toBeInTheDocument();
+    expect(screen.queryByText(/Destination:/)).not.toBeInTheDocument();
+  });
+
+  it('chooses bulk move destinations from the directory browser', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ detail: 'test stop' }), { status: 500 }));
+    render(<LibraryApp data={libraryData} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Select launch.png' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Move to…' }));
+
+    expect(screen.getByRole('dialog', { name: 'Choose destination' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Design/ }));
+    expect(screen.getByText('Move to').parentElement).toHaveTextContent('Design');
+    fireEvent.click(screen.getByRole('button', { name: 'Move here' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/bulk/move', expect.objectContaining({ method: 'POST' })));
+    const request = fetchMock.mock.calls.find(([url]) => url === '/bulk/move')?.[1] as RequestInit;
+    expect(JSON.parse(String(request.body))).toEqual({ ids: ['image-1'], folder_id: 'design' });
   });
 
   it('uploads clipboard text as a normal file and records a share link', async () => {
@@ -127,9 +143,10 @@ describe('React application surfaces', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ url: 'https://share.example.test/ms/paste-link' }), { status: 200 }));
     render(<LibraryApp data={libraryData} />);
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Upload destination' }), { target: { value: 'design' } });
     fireEvent.click(screen.getByRole('button', { name: /Paste text/ }));
     expect(screen.getByRole('dialog', { name: 'Share clipboard text' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Paste destination' })).toHaveValue('');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Paste destination' }), { target: { value: 'design' } });
     fireEvent.change(screen.getByLabelText('File name'), { target: { value: 'release-notes' } });
     fireEvent.change(screen.getByLabelText('Text'), { target: { value: 'Large clipboard text\nwith Unicode: ✓' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save and copy link' }));

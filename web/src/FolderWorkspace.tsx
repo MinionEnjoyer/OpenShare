@@ -91,27 +91,38 @@ function FolderVisual({ folder, className }: { folder: Folder; className: string
   </span>;
 }
 
-function TreeBrowser({ folders, currentFolder, onClose }: {
+type TreeSelection = {
+  selectedId: string | null;
+  busy?: boolean;
+  confirmLabel?: string;
+  onSelect: (folderId: string | null) => void;
+  onConfirm: () => void;
+};
+
+export function TreeBrowser({ folders, currentFolder, onClose, selection }: {
   folders: Folder[];
   currentFolder: Folder | null;
   onClose: () => void;
+  selection?: TreeSelection;
 }) {
   const expansionKey = 'openshare-tree-expanded';
   const forest = useMemo(() => buildFolderForest(folders), [folders]);
   const folderMap = useMemo(() => new Map(folders.map((folder) => [folder.id, folder])), [folders]);
+  const selectedFolder = selection?.selectedId ? folderMap.get(selection.selectedId) ?? null : null;
   const currentPath = useMemo(() => {
     const path: Folder[] = [];
-    let cursor = currentFolder;
+    let cursor = selection ? selectedFolder : currentFolder;
     const seen = new Set<string>();
     while (cursor && !seen.has(cursor.id)) {
       seen.add(cursor.id); path.unshift(cursor); cursor = cursor.parent_id ? folderMap.get(cursor.parent_id) ?? null : null;
     }
     return path;
-  }, [currentFolder, folderMap]);
+  }, [currentFolder, folderMap, selectedFolder, selection]);
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(() => {
-    const initial = ancestorIds(folders, currentFolder?.id ?? null);
-    if (currentFolder?.id) initial.add(currentFolder.id);
+    const initialId = selection ? selection.selectedId : currentFolder?.id ?? null;
+    const initial = ancestorIds(folders, initialId);
+    if (initialId) initial.add(initialId);
     try {
       const saved = JSON.parse(window.localStorage.getItem(expansionKey) || '[]');
       if (Array.isArray(saved)) saved.forEach((id) => { if (typeof id === 'string') initial.add(id); });
@@ -133,7 +144,7 @@ function TreeBrowser({ folders, currentFolder, onClose }: {
   });
 
   const focusRow = (id: string) => treeRef.current?.querySelector<HTMLElement>(`[data-tree-id="${CSS.escape(id)}"]`)?.focus();
-  const onTreeKeyDown = (event: KeyboardEvent<HTMLElement>, row: FlatFolderNode | null, index: number) => {
+  const onTreeKeyDown = (event: KeyboardEvent<HTMLElement>, row: FlatFolderNode | null) => {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
       event.preventDefault();
       const focusable = [...(treeRef.current?.querySelectorAll<HTMLElement>('[data-tree-id]') ?? [])];
@@ -142,6 +153,12 @@ function TreeBrowser({ folders, currentFolder, onClose }: {
         : event.key === 'End' ? focusable.length - 1
           : Math.max(0, Math.min(focusable.length - 1, activeIndex + (event.key === 'ArrowDown' ? 1 : -1)));
       focusable[target]?.focus();
+      return;
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      if (selection) selection.onSelect(row?.id ?? null);
+      else window.location.assign(row ? `/folder/${encodeURIComponent(row.id)}` : '/');
       return;
     }
     if (!row) return;
@@ -153,20 +170,19 @@ function TreeBrowser({ folders, currentFolder, onClose }: {
     if (event.key === 'ArrowLeft') {
       event.preventDefault();
       if (row.children.length && expanded.has(row.id)) toggle(row.id);
-      else if (row.parentId) focusRow(row.parentId);
+      else focusRow(row.parentId ?? '__root__');
     }
-    if (event.key === 'Enter' && index >= 0) window.location.assign(`/folder/${encodeURIComponent(row.id)}`);
   };
 
   return (
-    <Dialog title="Browse library" description="Move through every folder from one compact directory tree." className="os-tree-dialog" onClose={onClose}>
+    <Dialog title={selection ? 'Choose destination' : 'Browse library'} description={selection ? 'Select a folder from the directory tree, then confirm the move.' : 'Move through every folder from one compact directory tree.'} className="os-tree-dialog" onClose={onClose}>
       <div className="os-tree-browser">
         <div className="os-tree-location">
           <nav aria-label="Current folder path">
-            <a href="/" aria-current={!currentFolder ? 'page' : undefined}>OpenShare</a>
+            {selection ? <button type="button" onClick={() => selection.onSelect(null)} aria-current={selection.selectedId === null ? 'page' : undefined}>OpenShare</button> : <a href="/" aria-current={!currentFolder ? 'page' : undefined}>OpenShare</a>}
             {currentPath.map((folder) => <span key={folder.id}>
               <span aria-hidden="true">/</span>
-              <a href={`/folder/${encodeURIComponent(folder.id)}`} aria-current={folder.id === currentFolder?.id ? 'page' : undefined}>{folder.name}</a>
+              {selection ? <button type="button" onClick={() => selection.onSelect(folder.id)} aria-current={folder.id === selection.selectedId ? 'page' : undefined}>{folder.name}</button> : <a href={`/folder/${encodeURIComponent(folder.id)}`} aria-current={folder.id === currentFolder?.id ? 'page' : undefined}>{folder.name}</a>}
             </span>)}
           </nav>
           <span>{folders.length} {folders.length === 1 ? 'folder' : 'folders'} · {folders.reduce((sum, folder) => sum + (folder.item_count ?? 0), 0)} files</span>
@@ -183,33 +199,41 @@ function TreeBrowser({ folders, currentFolder, onClose }: {
               <button type="button" onClick={() => setExpanded(new Set())}>Collapse</button>
             </div>
           </div>
-          <div className="os-tree-summary" aria-live="polite"><span>{query ? `${rows.length} matching ${rows.length === 1 ? 'folder' : 'folders'}` : 'Directory tree'}</span><span>Arrow keys navigate · Enter opens</span></div>
+          <div className="os-tree-summary" aria-live="polite"><span>{query ? `${rows.length} matching ${rows.length === 1 ? 'folder' : 'folders'}` : 'Directory tree'}</span><span>{selection ? 'Arrow keys navigate · Enter selects' : 'Arrow keys navigate · Enter opens'}</span></div>
           <nav ref={treeRef} className="os-tree" aria-label="Folder directory" role="tree">
             <div className="os-tree-item os-tree-root" role="none">
-              <div className={`os-tree-row ${!currentFolder ? 'is-current' : ''}`} role="treeitem" aria-level={1} aria-expanded="true" aria-current={!currentFolder ? 'page' : undefined}>
+              <div className={`os-tree-row ${!currentFolder ? 'is-current' : ''} ${selection?.selectedId === null ? 'is-selected' : ''}`} role="treeitem" aria-level={1} aria-expanded="true" aria-current={!currentFolder ? 'page' : undefined} aria-selected={selection ? selection.selectedId === null : undefined}>
                 <span className="os-tree-root-mark" aria-hidden="true">/</span>
-                <a href="/" className="os-tree-target">
+                {selection ? <button type="button" className="os-tree-target" data-tree-id="__root__" onClick={() => selection.onSelect(null)} onKeyDown={(event) => onTreeKeyDown(event, null)}>
+                  <span className="os-tree-copy"><strong>OpenShare</strong><small>Library root</small></span>
+                  {selection.selectedId === null && <span className="os-tree-current">Selected</span>}
+                </button> : <a href="/" className="os-tree-target" data-tree-id="__root__" onKeyDown={(event) => onTreeKeyDown(event, null)}>
                   <span className="os-tree-copy"><strong>OpenShare</strong><small>Library root</small></span>
                   {!currentFolder && <span className="os-tree-current">Current</span>}
-                </a>
+                </a>}
               </div>
             </div>
-            {rows.map((row, index) => {
+            {rows.map((row) => {
               const isCurrent = row.id === currentFolder?.id;
+              const isSelected = row.id === selection?.selectedId;
               const isExpanded = expanded.has(row.id) || Boolean(visibleIds);
               const style = { '--folder-color': row.color } as CSSProperties;
               return <div key={row.id} className="os-tree-item" role="none" style={style} data-depth={row.depth} data-branch={row.isLast ? 'last' : 'continuing'}>
-                <div className={`os-tree-row ${isCurrent ? 'is-current' : ''}`} role="treeitem" aria-level={row.depth + 2} aria-expanded={row.children.length ? isExpanded : undefined} aria-current={isCurrent ? 'page' : undefined}>
+                <div className={`os-tree-row ${isCurrent ? 'is-current' : ''} ${isSelected ? 'is-selected' : ''}`} role="treeitem" aria-level={row.depth + 2} aria-expanded={row.children.length ? isExpanded : undefined} aria-current={isCurrent ? 'page' : undefined} aria-selected={selection ? isSelected : undefined}>
                   <span className="os-tree-branches" aria-hidden="true">
                     {row.ancestorContinuations.map((continues, depth) => <span className={`os-tree-guide ${continues ? 'is-continuing' : ''}`} key={depth}>{continues ? '│' : ''}</span>)}
                     <span className={`os-tree-elbow ${row.isLast ? 'is-last' : ''}`}>{row.isLast ? '└─' : '├─'}</span>
                   </span>
                   {row.children.length ? <button className="os-tree-disclosure" type="button" aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${row.name}`} onClick={() => toggle(row.id)} tabIndex={-1}><span>{isExpanded ? '−' : '+'}</span></button> : <span className="os-tree-leaf" aria-hidden="true">·</span>}
-                  <a href={`/folder/${encodeURIComponent(row.id)}`} className="os-tree-target" data-tree-id={row.id} onKeyDown={(event) => onTreeKeyDown(event, row, index)}>
+                  {selection ? <button type="button" className="os-tree-target" data-tree-id={row.id} onClick={() => selection.onSelect(row.id)} onKeyDown={(event) => onTreeKeyDown(event, row)}>
+                    <span className="os-tree-folder-icon" aria-hidden="true">{row.icon}</span>
+                    <span className="os-tree-copy"><strong>{row.name}</strong><small>{childLabel(row)}</small></span>
+                    {isSelected && <span className="os-tree-current">Selected</span>}
+                  </button> : <a href={`/folder/${encodeURIComponent(row.id)}`} className="os-tree-target" data-tree-id={row.id} onKeyDown={(event) => onTreeKeyDown(event, row)}>
                     <span className="os-tree-folder-icon" aria-hidden="true">{row.icon}</span>
                     <span className="os-tree-copy"><strong>{row.name}</strong><small>{childLabel(row)}</small></span>
                     {isCurrent && <span className="os-tree-current">Current</span>}
-                  </a>
+                  </a>}
                 </div>
               </div>;
             })}
@@ -217,6 +241,10 @@ function TreeBrowser({ folders, currentFolder, onClose }: {
           </nav>
         </section>
       </div>
+      {selection && <footer className="os-dialog-actions os-tree-picker-actions">
+        <span>Move to <strong>{selectedFolder?.name ?? 'Library root'}</strong></span>
+        <div><button type="button" disabled={selection.busy} onClick={onClose}>Cancel</button><button className="primary" type="button" disabled={selection.busy} onClick={selection.onConfirm}>{selection.busy && <Spinner size="xs" label="Moving files" />} {selection.confirmLabel ?? 'Move here'}</button></div>
+      </footer>}
     </Dialog>
   );
 }

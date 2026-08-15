@@ -1,5 +1,5 @@
 import { ChangeEvent, CSSProperties, DragEvent, FormEvent, MouseEvent, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { FolderWorkspace } from './FolderWorkspace';
+import { FolderWorkspace, TreeBrowser } from './FolderWorkspace';
 import { Spinner } from './Spinner';
 import type { LibraryData, LibraryItem } from './types';
 
@@ -12,10 +12,12 @@ type UploadResult = {
 
 type QuickPasteDialogProps = {
   busy: boolean;
-  destination: string;
+  destinationId: string;
+  destinations: Array<{ id: string; label: string }>;
   error: string;
   shareUrl: string;
   onClose: () => void;
+  onDestinationChange: (folderId: string) => void;
   onSubmit: (filename: string, content: string, createShare: boolean) => void;
 };
 
@@ -38,7 +40,7 @@ function apiError(detail: unknown, fallback: string) {
   return fallback;
 }
 
-function QuickPasteDialog({ busy, destination, error, shareUrl, onClose, onSubmit }: QuickPasteDialogProps) {
+function QuickPasteDialog({ busy, destinationId, destinations, error, shareUrl, onClose, onDestinationChange, onSubmit }: QuickPasteDialogProps) {
   const [filename, setFilename] = useState('paste.txt');
   const [content, setContent] = useState('');
   const [createShare, setCreateShare] = useState(true);
@@ -81,8 +83,9 @@ function QuickPasteDialog({ busy, destination, error, shareUrl, onClose, onSubmi
       </header>
       <form className="os-paste-form" onSubmit={submit}>
         <label><span>File name</span><input value={filename} maxLength={180} disabled={busy} onChange={(event) => setFilename(event.target.value)} placeholder="paste.txt" /></label>
+        <label className="os-upload-destination"><span>Save to</span><select aria-label="Paste destination" value={destinationId} disabled={busy} onChange={(event) => onDestinationChange(event.target.value)}><option value="">Unsorted</option>{destinations.map((folder) => <option value={folder.id} key={folder.id}>{folder.label}</option>)}</select></label>
         <label className="os-paste-content"><span>Text</span><textarea ref={textRef} value={content} disabled={busy} onChange={(event) => setContent(event.target.value)} placeholder="Paste text here…" spellCheck="false" /></label>
-        <div className="os-paste-meta"><span>Save to <strong>{destination}</strong></span><span>{new Blob([content]).size.toLocaleString()} bytes</span></div>
+        <div className="os-paste-meta"><span>{new Blob([content]).size.toLocaleString()} bytes</span></div>
         <label className="os-paste-share"><input type="checkbox" checked={createShare} disabled={busy} onChange={(event) => setCreateShare(event.target.checked)} /><span><strong>Create a share link</strong><small>Copy a public link after the paste is saved.</small></span></label>
         {(validationError || error) && <div className="os-form-error" role="alert">{validationError || error}</div>}
         {shareUrl && <div className="os-paste-result" role="status"><span>Share link created and copied</span><a href={shareUrl}>{shareUrl}</a></div>}
@@ -112,6 +115,8 @@ export function LibraryApp({ data }: { data: LibraryData }) {
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [moving, setMoving] = useState(false);
+  const [movePickerOpen, setMovePickerOpen] = useState(false);
+  const [moveTargetId, setMoveTargetId] = useState<string | null>(data.currentFolder?.id ?? null);
   const [uploadFolderId, setUploadFolderId] = useState('');
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteError, setPasteError] = useState('');
@@ -132,8 +137,6 @@ export function LibraryApp({ data }: { data: LibraryData }) {
     };
     return data.allFolders.map((folder) => ({ id: folder.id, label: labelFor(folder.id) })).sort((a, b) => a.label.localeCompare(b.label));
   }, [data.allFolders]);
-  const uploadDestinationName = uploadFolderId ? uploadDestinations.find((folder) => folder.id === uploadFolderId)?.label ?? 'Selected folder' : 'Unsorted';
-
   const postFiles = async (files: FileList | File[]) => {
     const body = new FormData();
     [...files].forEach((file) => body.append('files', file));
@@ -266,7 +269,6 @@ export function LibraryApp({ data }: { data: LibraryData }) {
             <span className="os-paste-launch-icon" aria-hidden="true">¶</span>
             <span><strong>Paste text</strong><small>Open text editor</small></span>
           </button>
-          <span className="os-area-count">Destination: {uploadDestinationName}</span>
         </div>
       </header>
       <div
@@ -305,10 +307,11 @@ export function LibraryApp({ data }: { data: LibraryData }) {
     </section>
     {selected.size > 0 && <aside className="selection-bar" aria-label="Selected file actions">
       <span className="sel-count">{selected.size} selected</span>
-      <label className="os-bulk-destination"><span className="sr-only">Move destination</span><select disabled={moving} defaultValue="__choose__" onChange={(event) => { if (event.target.value !== '__choose__') void bulkMove(event.target.value || null); }}><option value="__choose__">Move to…</option><option value="">Library root</option>{data.allFolders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>
+      <button className="btn os-bulk-destination" type="button" disabled={moving} onClick={() => setMovePickerOpen(true)}>Move to…</button>
       <button className="btn danger" type="button" disabled={moving} onClick={bulkDelete}>Delete</button>
       <button className="btn" type="button" disabled={moving} onClick={() => setSelected(new Set())}>Clear</button>
     </aside>}
-    {pasteOpen && <QuickPasteDialog busy={uploading} destination={uploadDestinationName} error={pasteError} shareUrl={pasteShareUrl} onClose={() => setPasteOpen(false)} onSubmit={(filename, content, createShare) => { void savePaste(filename, content, createShare); }} />}
+    {movePickerOpen && <TreeBrowser folders={data.allFolders} currentFolder={data.currentFolder} onClose={() => setMovePickerOpen(false)} selection={{ selectedId: moveTargetId, busy: moving, onSelect: setMoveTargetId, onConfirm: () => { void bulkMove(moveTargetId); } }} />}
+    {pasteOpen && <QuickPasteDialog busy={uploading} destinationId={uploadFolderId} destinations={uploadDestinations} error={pasteError} shareUrl={pasteShareUrl} onClose={() => setPasteOpen(false)} onDestinationChange={setUploadFolderId} onSubmit={(filename, content, createShare) => { void savePaste(filename, content, createShare); }} />}
   </div>;
 }

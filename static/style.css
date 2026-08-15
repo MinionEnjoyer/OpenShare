@@ -361,7 +361,7 @@ main > * + * { margin-top:.9rem; }
   box-shadow: 0 4px 24px rgba(0,0,0,0.4);
 }
 .sel-count { padding: 0 0.5rem; }
-.os-bulk-destination select { min-height:40px; max-width:220px; padding:.45rem 2rem .45rem .65rem; border:1px solid var(--line); border-radius:9px; color:var(--fg); background:var(--bg-soft); font:inherit; font-size:.82rem; }
+.selection-bar .os-bulk-destination { min-height:40px; border-color:color-mix(in srgb,var(--accent) 35%,var(--line)); }
 /* Drop targets (folder tiles) */
 .droptarget { transition: transform 120ms, border-color 120ms, background 120ms; }
 .droptarget.dropping { border-color: var(--accent); background: rgba(79,156,249,0.08); transform: scale(1.03); }

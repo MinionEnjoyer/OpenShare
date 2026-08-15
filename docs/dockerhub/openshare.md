@@ -33,20 +33,22 @@ cd OpenShare
 cp .env.example .env
 # Configure OIDC, the public URL, storage, and trusted origins in .env.
 OPENSHARE_IMAGE=minionenjoyer/openshare \
-OPENSHARE_VERSION=0.2.36 \
+OPENSHARE_VERSION=0.2.37 \
 docker compose -f docker-compose.public.yml pull
 OPENSHARE_IMAGE=minionenjoyer/openshare \
-OPENSHARE_VERSION=0.2.36 \
+OPENSHARE_VERSION=0.2.37 \
 docker compose -f docker-compose.public.yml up -d
 ```
 
 OpenShare listens on port `8800` by default. Deploy it behind a TLS-terminating reverse proxy and
-persist both the database and storage paths described in the configuration template.
+persist both the database and storage paths described in the configuration template. Upload limits
+are opt-in; configure the proxy without a body-size ceiling (nginx: `client_max_body_size 0`) or set
+its ceiling at or above your OpenShare upload limits to avoid proxy-generated 413 responses.
 
 ## Image tags
 
 - `latest`: newest CI-verified `main` build
-- `0.2.36`: current stable release
+- `0.2.37`: current stable release
 - `sha-<commit>`: immutable build for a verified source commit
 
 Images are published for `linux/amd64` and `linux/arm64`. Docker Hub receives the exact digest

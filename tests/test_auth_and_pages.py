@@ -72,11 +72,13 @@ def test_health_reports_the_canonical_version(harness: OpenShareHarness):
     assert (Path(__file__).resolve().parents[1] / "VERSION").read_text().strip() == main.APP_VERSION
 
 
-@pytest.mark.integration
-def test_stable_app_assets_revalidate_instead_of_staying_stale(harness: OpenShareHarness):
-    response = harness.client.get("/static/react/assets/openshare.js")
+@pytest.mark.unit
+@pytest.mark.parametrize("path", sorted(main._REVALIDATED_APP_ASSETS))
+def test_stable_app_assets_revalidate_instead_of_staying_stale(path):
+    response = main.Response()
 
-    assert response.status_code == 200
+    main.apply_browser_cache_policy(path, response)
+
     assert response.headers["cache-control"] == "no-cache, max-age=0, must-revalidate"
 
 

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import main
@@ -36,9 +37,51 @@ def test_react_chunks_use_the_fastapi_static_mount():
     base_template = BASE_TEMPLATE.read_text(encoding="utf-8")
 
     assert "base: '/static/react/'" in vite_config
-    assert 'src="/static/react/assets/openshare.js?v={{ app_version }}"' in base_template
-    assert 'href="/static/react/assets/openshare.css?v={{ app_version }}"' in base_template
+    assert "manifest: true" in vite_config
+    assert "entryFileNames: 'assets/openshare-[hash].js'" in vite_config
+    assert "'assets/openshare-[hash].css'" in vite_config
+    assert 'src="{{ react_entry_asset }}"' in base_template
+    assert 'href="{{ stylesheet }}"' in base_template
     assert 'href="/static/style.css?v={{ app_version }}"' in base_template
+    assert "vite:preloadError" in base_template
+    assert "openshare-preload-recovery:" in base_template
+
+
+def test_react_assets_resolve_from_the_vite_manifest(tmp_path):
+    manifest_dir = tmp_path / "react" / ".vite"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "manifest.json").write_text(json.dumps({
+        "src/main.tsx": {
+            "file": "assets/openshare-AbCd1234.js",
+            "css": ["assets/openshare-EfGh5678.css"],
+        },
+    }), encoding="utf-8")
+
+    entry, styles = main.load_react_assets(tmp_path)
+
+    assert entry == "/static/react/assets/openshare-AbCd1234.js"
+    assert styles == ["/static/react/assets/openshare-EfGh5678.css"]
+
+
+def test_react_assets_resolve_vites_single_css_bundle(tmp_path):
+    manifest_dir = tmp_path / "react" / ".vite"
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "manifest.json").write_text(json.dumps({
+        "src/main.tsx": {"file": "assets/openshare-AbCd1234.js"},
+        "style.css": {"file": "assets/openshare-EfGh5678.css"},
+    }), encoding="utf-8")
+
+    entry, styles = main.load_react_assets(tmp_path)
+
+    assert entry == "/static/react/assets/openshare-AbCd1234.js"
+    assert styles == ["/static/react/assets/openshare-EfGh5678.css"]
+
+
+def test_react_assets_have_a_development_fallback(tmp_path):
+    entry, styles = main.load_react_assets(tmp_path)
+
+    assert entry == f"/static/react/assets/openshare.js?v={main.APP_VERSION}"
+    assert styles == [f"/static/react/assets/openshare.css?v={main.APP_VERSION}"]
 
 
 def test_public_container_release_is_ci_gated_and_multi_arch():

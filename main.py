@@ -32,6 +32,37 @@ STORAGE_ROOT = Path(os.environ.get("STORAGE_ROOT", "/srv/gallery"))
 FILES_DIR = STORAGE_ROOT / "files"
 THUMBS_DIR = STORAGE_ROOT / "thumbs"
 APP_VERSION = Path(__file__).with_name("VERSION").read_text(encoding="utf-8").strip()
+
+
+def load_react_assets(static_root: Path) -> tuple[str, list[str]]:
+    """Resolve the content-addressed React entrypoints emitted by Vite."""
+    fallback_entry = f"/static/react/assets/openshare.js?v={APP_VERSION}"
+    fallback_styles = [f"/static/react/assets/openshare.css?v={APP_VERSION}"]
+    manifest_path = static_root / "react" / ".vite" / "manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        entry = manifest["src/main.tsx"]
+        entry_file = entry["file"]
+        styles = entry.get("css")
+        if styles is None:
+            styles = [
+                candidate["file"] for candidate in manifest.values()
+                if isinstance(candidate, dict)
+                and isinstance(candidate.get("file"), str)
+                and candidate["file"].endswith(".css")
+            ]
+        if not isinstance(entry_file, str) or not entry_file.startswith("assets/"):
+            raise ValueError("invalid React entry asset")
+        if not isinstance(styles, list) or not all(
+            isinstance(path, str) and path.startswith("assets/") for path in styles
+        ):
+            raise ValueError("invalid React stylesheet assets")
+        return f"/static/react/{entry_file}", [f"/static/react/{path}" for path in styles]
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return fallback_entry, fallback_styles
+
+
+REACT_ENTRY_ASSET, REACT_STYLESHEET_ASSETS = load_react_assets(Path(__file__).with_name("static"))
 SESSION_SECRET = os.environ["SESSION_SECRET"]
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "http://localhost:8000").rstrip("/")
 # Cross-origin clients allowed to upload with credentials (e.g. your OpenChat URL).
@@ -314,6 +345,8 @@ async def security_boundary(request: Request, call_next):
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 templates.env.globals["app_version"] = APP_VERSION
+templates.env.globals["react_entry_asset"] = REACT_ENTRY_ASSET
+templates.env.globals["react_stylesheet_assets"] = REACT_STYLESHEET_ASSETS
 
 
 @app.get("/health")

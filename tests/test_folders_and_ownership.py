@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 import db
+import main
 from conftest import OpenShareHarness, OTHER_OWNER, OWNER, PNG_1X1, run
 
 
@@ -238,8 +239,8 @@ def test_folder_page_renders_react_workspace_data_and_active_orbit(harness: Open
     assert response.status_code == 200
     assert 'id="folder-workspace"' in response.text
     assert 'id="folder-workspace-data"' in response.text
-    assert '/static/react/assets/openshare.js' in response.text
-    assert '/static/react/assets/openshare.css' in response.text
+    assert f'src="{main.REACT_ENTRY_ASSET}"' in response.text
+    assert all(f'href="{stylesheet}"' in response.text for stylesheet in main.REACT_STYLESHEET_ASSETS)
     assert '"currentFolder"' in response.text
     assert '"allFolders"' in response.text
     assert '"color": "#8b7cf6"' in response.text

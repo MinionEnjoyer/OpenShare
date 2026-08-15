@@ -67,7 +67,7 @@ def test_every_media_type_uses_the_shared_react_viewer_shell(harness: OpenShareH
     assert 'id="media-viewer-root"' in response.text
     assert 'id="media-viewer-data"' in response.text
     assert '"canManage"' in response.text
-    assert '/static/react/assets/openshare.js' in response.text
+    assert f'src="{main.REACT_ENTRY_ASSET}"' in response.text
     assert '<footer class="app-version"' not in response.text
 
 

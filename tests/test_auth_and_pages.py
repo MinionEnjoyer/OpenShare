@@ -57,7 +57,7 @@ def test_logged_in_home_renders_gallery(monkeypatch, harness: OpenShareHarness):
     assert response.status_code == 200
     assert 'id="folder-workspace"' in response.text
     assert 'id="folder-workspace-data"' in response.text
-    assert '/static/react/assets/openshare.js' in response.text
+    assert f'src="{main.REACT_ENTRY_ASSET}"' in response.text
     assert '"items"' in response.text
     assert f"OpenShare v{main.APP_VERSION}" in response.text
     assert "Sign in" not in response.text

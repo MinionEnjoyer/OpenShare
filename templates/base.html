@@ -9,9 +9,10 @@
 {% block meta %}{% endblock %}
 <link rel="icon" type="image/png" href="/static/favicon.png">
 <link rel="stylesheet" href="/static/style.css?v={{ app_version }}">
-<link rel="stylesheet" href="/static/react/assets/openshare.css?v={{ app_version }}">
+{% for stylesheet in react_stylesheet_assets %}<link rel="stylesheet" href="{{ stylesheet }}">{% endfor %}
 {% block head %}{% endblock %}
-<script type="module" src="/static/react/assets/openshare.js?v={{ app_version }}"></script>
+<script>(function(){var build={{ app_version|tojson }};window.addEventListener('vite:preloadError',function(event){event.preventDefault();var key='openshare-preload-recovery:'+build;try{if(!sessionStorage.getItem(key)){sessionStorage.setItem(key,'1');var url=new URL(location.href);url.searchParams.set('_app',build);location.replace(url);return}}catch(error){}document.documentElement.dataset.appLoadFailed='true'})})()</script>
+<script type="module" src="{{ react_entry_asset }}"></script>
 </head>
 <body>
 <nav class="app-nav">

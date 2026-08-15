@@ -42,6 +42,9 @@ If OpenShare is useful to you, project support is available through
 - **Automatic thumbnails** for images, video frames, PDFs, and 3D models; audio uploads get a
   stored **waveform** (audio-level peaks) + duration, served at `/waveform/<id>`.
 - **Content-hash de-duplication** — the same file uploaded twice is stored once.
+- **Quick paste** — paste large clipboard text into the upload workspace, choose the normal folder
+  destination, and optionally create and copy a recorded share link in one step. Pasted text uses
+  the same owner-scoped storage, viewer, search, and “My shared links” workflow as any other file.
 - **Folders** with nesting, bulk actions, a compact searchable directory tree with persistent
   expansion state and keyboard navigation, custom RGB colors, the full locally bundled OpenChat
   emoji picker, a focused edit mode, and optional dynamic or user-selected image covers
@@ -79,7 +82,7 @@ progressive search, contacts, public
 folder presentation, and every media viewer. FastAPI supplies thin metadata shells plus
 authentication, storage, and stable resource URLs. Ships as one image.
 
-The current OpenShare release is **0.2.36**. The canonical value lives in [`VERSION`](VERSION), is
+The current OpenShare release is **0.2.37**. The canonical value lives in [`VERSION`](VERSION), is
 shown in the web footer, and is returned by `GET /health` so operators can verify the active build.
 
 ## Quick start
@@ -90,7 +93,10 @@ docker compose up -d --build
 ```
 
 OpenShare listens on `PORT` (default `8800`). Put it behind a reverse proxy that terminates TLS
-and set `PUBLIC_URL` to the public HTTPS URL.
+and set `PUBLIC_URL` to the public HTTPS URL. Upload limits are opt-in, so configure the reverse
+proxy with no request-body ceiling (for nginx, `client_max_body_size 0`) or with a ceiling at least
+as large as your chosen `UPLOAD_MAX_MB` / `UPLOAD_TOTAL_MAX_MB`. A lower proxy ceiling returns 413
+before OpenShare can apply its configured policy.
 
 ### Public container
 
@@ -105,7 +111,7 @@ docker compose -f docker-compose.public.yml up -d
 ```
 
 The Compose file defaults to `ghcr.io/minionenjoyer/openshare:latest`. Set
-`OPENSHARE_VERSION=0.2.36` to pin this release, or use the published `sha-<commit>` tag for an
+`OPENSHARE_VERSION=0.2.37` to pin this release, or use the published `sha-<commit>` tag for an
 immutable deployment. Set `OPENSHARE_IMAGE=<namespace>/openshare` to pull the Docker Hub mirror.
 Source builds remain available through the standard `docker-compose.yml`.
 

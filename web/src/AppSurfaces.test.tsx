@@ -117,4 +117,48 @@ describe('React application surfaces', () => {
     expect(screen.getByRole('combobox', { name: 'Upload destination' })).toHaveValue('');
     expect(screen.getByText('Destination: Unsorted')).toBeInTheDocument();
   });
+
+  it('uploads clipboard text as a normal file and records a share link', async () => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } });
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    fetchMock.mockReset()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ saved: [{ id: 'paste-1' }], rejected: [] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ url: 'https://share.example.test/ms/paste-link' }), { status: 200 }));
+    render(<LibraryApp data={libraryData} />);
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Upload destination' }), { target: { value: 'design' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Quick paste' }));
+    expect(screen.getByRole('dialog', { name: 'Share clipboard text' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('File name'), { target: { value: 'release-notes' } });
+    fireEvent.change(screen.getByLabelText('Text'), { target: { value: 'Large clipboard text\nwith Unicode: ✓' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save and copy link' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const uploadRequest = fetchMock.mock.calls[0][1] as RequestInit;
+    const body = uploadRequest.body as FormData;
+    const uploaded = body.get('files') as File;
+    expect(uploaded.name).toBe('release-notes.txt');
+    const uploadedText = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(uploaded);
+    });
+    expect(uploadedText).toBe('Large clipboard text\nwith Unicode: ✓');
+    expect(body.get('folder_id')).toBe('design');
+    expect(fetchMock).toHaveBeenLastCalledWith('/media/paste-1/shares', { method: 'POST', credentials: 'same-origin' });
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('https://share.example.test/ms/paste-link');
+    expect(await screen.findByText('Share link created and copied')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'https://share.example.test/ms/paste-link' })).toHaveAttribute('href', 'https://share.example.test/ms/paste-link');
+  });
+
+  it('keeps an empty quick paste in the dialog with a clear validation error', () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    fetchMock.mockClear();
+    render(<LibraryApp data={libraryData} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Quick paste' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save and copy link' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('Paste some text before saving.');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

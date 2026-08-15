@@ -265,6 +265,28 @@ trusted_origins = {
     if (origin := normalize_origin(value))
 }
 
+_REVALIDATED_APP_ASSETS = {
+    "/static/style.css",
+    "/static/react/assets/openshare.css",
+    "/static/react/assets/openshare.js",
+}
+_HASHED_APP_ASSET = re.compile(
+    r"^/static/react/assets/.+-[A-Za-z0-9_-]{8,}\.(?:css|js|map)$"
+)
+
+
+def apply_browser_cache_policy(path: str, response: Response) -> None:
+    """Keep the app shell current while caching content-addressed build chunks."""
+    content_type = response.headers.get("content-type", "").lower()
+    if content_type.startswith("text/html"):
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    elif path in _REVALIDATED_APP_ASSETS:
+        response.headers["Cache-Control"] = "no-cache, max-age=0, must-revalidate"
+    elif _HASHED_APP_ASSET.fullmatch(path):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+
 
 @app.middleware("http")
 async def security_boundary(request: Request, call_next):
@@ -287,6 +309,7 @@ async def security_boundary(request: Request, call_next):
         "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; "
         "connect-src 'self' https://cdn.jsdelivr.net https://unpkg.com"
     )
+    apply_browser_cache_policy(request.url.path, response)
     return response
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")

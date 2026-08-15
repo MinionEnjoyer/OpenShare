@@ -33,10 +33,10 @@ cd OpenShare
 cp .env.example .env
 # Configure OIDC, the public URL, storage, and trusted origins in .env.
 OPENSHARE_IMAGE=minionenjoyer/openshare \
-OPENSHARE_VERSION=0.2.39 \
+OPENSHARE_VERSION=0.2.40 \
 docker compose -f docker-compose.public.yml pull
 OPENSHARE_IMAGE=minionenjoyer/openshare \
-OPENSHARE_VERSION=0.2.39 \
+OPENSHARE_VERSION=0.2.40 \
 docker compose -f docker-compose.public.yml up -d
 ```
 
@@ -48,7 +48,7 @@ its ceiling at or above your OpenShare upload limits to avoid proxy-generated 41
 ## Image tags
 
 - `latest`: newest CI-verified `main` build
-- `0.2.39`: current stable release
+- `0.2.40`: current stable release
 - `sha-<commit>`: immutable build for a verified source commit
 
 Images are published for `linux/amd64` and `linux/arm64`. Docker Hub receives the exact digest

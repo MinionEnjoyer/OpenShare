@@ -41,6 +41,9 @@ def test_logged_out_home_renders_login_page(harness: OpenShareHarness):
     response = harness.client.get("/")
 
     assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store, max-age=0"
+    assert response.headers["pragma"] == "no-cache"
+    assert response.headers["expires"] == "0"
     assert '<h1>OpenShare</h1>' in response.text
     assert 'href="/auth/login"' in response.text
 
@@ -67,6 +70,23 @@ def test_health_reports_the_canonical_version(harness: OpenShareHarness):
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "version": main.APP_VERSION}
     assert (Path(__file__).resolve().parents[1] / "VERSION").read_text().strip() == main.APP_VERSION
+
+
+@pytest.mark.integration
+def test_stable_app_assets_revalidate_instead_of_staying_stale(harness: OpenShareHarness):
+    response = harness.client.get("/static/react/assets/openshare.js")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache, max-age=0, must-revalidate"
+
+
+@pytest.mark.unit
+def test_hashed_app_chunks_are_immutable():
+    response = main.Response()
+
+    main.apply_browser_cache_policy("/static/react/assets/LibraryApp-DWrJABGU.js", response)
+
+    assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
 
 
 def test_active_folder_orbit_is_concentric_and_respects_reduced_motion():

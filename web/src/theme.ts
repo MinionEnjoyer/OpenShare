@@ -10,10 +10,18 @@ export function applyTheme(preference: ThemePreference) {
   const query = window.matchMedia('(prefers-color-scheme: dark)');
   document.documentElement.dataset.theme = effectiveTheme(preference, query.matches);
   document.documentElement.dataset.themePreference = preference;
-  window.localStorage.setItem(THEME_STORAGE_KEY, preference);
+  try {
+    window.localStorage?.setItem(THEME_STORAGE_KEY, preference);
+  } catch {
+    // Storage can be unavailable in hardened/private browser contexts.
+  }
 }
 
 export function storedTheme(): ThemePreference {
-  const value = window.localStorage.getItem(THEME_STORAGE_KEY);
-  return value === 'dark' || value === 'light' || value === 'system' ? value : 'system';
+  try {
+    const value = window.localStorage?.getItem(THEME_STORAGE_KEY);
+    return value === 'dark' || value === 'light' || value === 'system' ? value : 'system';
+  } catch {
+    return 'system';
+  }
 }

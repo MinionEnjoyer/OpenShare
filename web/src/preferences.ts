@@ -31,5 +31,9 @@ export function storedPreferences(): LibraryPreferences {
 export function applyPreferences(preferences: LibraryPreferences) {
   document.documentElement.dataset.folderDensity = preferences.folderDensity;
   document.documentElement.dataset.motion = preferences.motion;
-  window.localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(preferences));
+  try {
+    window.localStorage?.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(preferences));
+  } catch {
+    // Preferences still apply for this session when persistent storage is blocked.
+  }
 }
